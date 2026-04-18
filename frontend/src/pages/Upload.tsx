@@ -7,7 +7,7 @@ import {
   CheckCircle2, AlertCircle, Loader2, ArrowRight,
   Settings2, History, XCircle,
 } from "lucide-react";
-import { uploadLedger, uploadBank, type UploadResult } from "@/lib/api";
+import { uploadLedger, type UploadResult } from "@/lib/api";
 import { loadSettings, saveSettings } from "@/lib/settings";
 
 type Status = "idle" | "checking" | "ready" | "error";
@@ -17,29 +17,23 @@ const SETTINGS_KEY = "ledgerspy:settings";
 export default function Upload() {
   const navigate = useNavigate();
   const [ledger, setLedger] = useState<File | null>(null);
-  const [bank, setBank] = useState<File | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [ledgerResult, setLedgerResult] = useState<UploadResult | null>(null);
-  const [bankResult, setBankResult] = useState<UploadResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [choice, setChoice] = useState<SettingsChoice>(null);
 
   const hasPreviousSettings =
     typeof window !== "undefined" && !!localStorage.getItem(SETTINGS_KEY);
-  const canCheck = ledger && bank && status === "idle";
+  const canCheck = ledger && status === "idle";
 
   const runCheck = async () => {
-    if (!ledger || !bank) return;
+    if (!ledger) return;
     setStatus("checking");
     setErrorMsg("");
 
     try {
-      const [lr, br] = await Promise.all([
-        uploadLedger(ledger),
-        uploadBank(bank),
-      ]);
+      const lr = await uploadLedger(ledger);
       setLedgerResult(lr);
-      setBankResult(br);
       setStatus("ready");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -48,11 +42,8 @@ export default function Upload() {
     }
   };
 
-  // Combined readiness score = average of both files
-  const combinedScore =
-    ledgerResult && bankResult
-      ? Math.round((ledgerResult.readiness_score + bankResult.readiness_score) / 2)
-      : 0;
+  // Use ledger readiness score directly
+  const combinedScore = ledgerResult ? ledgerResult.readiness_score : 0;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -72,10 +63,10 @@ export default function Upload() {
             </div>
             <h1 className="text-2xl font-bold text-foreground tracking-tight">Upload Financial Data</h1>
             <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
-              Provide the ledger and corresponding bank statement to begin the readiness check.
+              Provide the ledger to begin the readiness check.
               <br />
               <span className="text-xs opacity-70">
-                Required ledger columns: <code>Date, VendorName, Amount</code> · Bank columns: <code>Date, Description, Amount</code>
+                Required ledger columns: <code>Date, VendorName, Amount</code>
               </span>
             </p>
           </div>
@@ -86,11 +77,6 @@ export default function Upload() {
               label="Upload Ledger File"
               description="Trial balance or general ledger export — CSV, XLSX, or PDF."
               onFile={setLedger}
-            />
-            <UploadZone
-              label="Upload Bank Statement"
-              description="Period-matched bank statement file — CSV, XLSX, or PDF."
-              onFile={setBank}
             />
           </div>
 
@@ -118,11 +104,11 @@ export default function Upload() {
                 <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
                   {errorMsg}
                 </div>
-              ) : status === "ready" && ledgerResult && bankResult ? (
+              ) : status === "ready" && ledgerResult ? (
                 <>
                   <div className="flex items-baseline gap-2.5 mb-3">
                     <span className="text-4xl font-bold tabular-nums text-foreground">{combinedScore}%</span>
-                    <span className="text-xs text-muted-foreground">combined readiness score</span>
+                    <span className="text-xs text-muted-foreground">ledger readiness score</span>
                   </div>
 
                   {/* Progress bar */}
@@ -137,29 +123,14 @@ export default function Upload() {
                       tone="ok"
                     />
                     <Indicator
-                      label={`Bank rows`}
-                      value={String(bankResult.rows)}
-                      tone="ok"
-                    />
-                    <Indicator
                       label="Ledger null rows"
                       value={String(ledgerResult.null_rows)}
                       tone={ledgerResult.null_rows > 0 ? "warn" : "ok"}
                     />
                     <Indicator
-                      label="Bank null rows"
-                      value={String(bankResult.null_rows)}
-                      tone={bankResult.null_rows > 0 ? "warn" : "ok"}
-                    />
-                    <Indicator
                       label="Ledger duplicates"
                       value={String(ledgerResult.duplicate_rows)}
                       tone={ledgerResult.duplicate_rows > 0 ? "warn" : "ok"}
-                    />
-                    <Indicator
-                      label="Bank duplicates"
-                      value={String(bankResult.duplicate_rows)}
-                      tone={bankResult.duplicate_rows > 0 ? "warn" : "ok"}
                     />
                   </ul>
                 </>

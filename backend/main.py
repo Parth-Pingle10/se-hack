@@ -13,6 +13,7 @@ from reconciliation_module import run_reconciliation
 from monte_carlo import run_monte_carlo_stress_test
 from memo_generator import generate_audit_memo
 from map import preprocess_data, compute_benford_scores, compute_anomaly_scores, fuzzy_matching, compute_risk_scores, generate_graph
+from cycle_detection import detect_cycles, mark_cycle_edges, find_strongly_connected_components, find_vendor_payment_chains
 
 app = FastAPI(title="LedgerSpy API", version="1.0.0")
 
@@ -670,7 +671,7 @@ def analysis_network():
         seen_edges = set()
         
         for edge in graph["links"]:
-            edge_key = tuple(sorted([edge["source"], edge["target"]]))
+            edge_key = (str(edge["source"]), str(edge["target"]))
             if edge_key in seen_edges:
                 continue
             seen_edges.add(edge_key)
@@ -685,10 +686,45 @@ def analysis_network():
                 "kind": "payment" if edge["amount"] > 0 else "similarity"
             })
         
+        # Find vendor-to-vendor payment chains for better cycle detection
+        try:
+            vendor_nodes_data, vendor_edges_data = find_vendor_payment_chains(df_work)
+            
+            # Add vendor nodes if not already in nodes
+            vendor_ids = {n["id"] for n in nodes}
+            for vnode in vendor_nodes_data:
+                if vnode["id"] not in vendor_ids:
+                    vnode["riskScore"] = risk.get(vnode["id"], 0) * 100
+                    nodes.append(vnode)
+            
+            # Add vendor-to-vendor edges for cycle detection
+            for vedge in vendor_edges_data:
+                edge_key = (str(vedge["source"]), str(vedge["target"]))
+                if edge_key not in seen_edges:
+                    seen_edges.add(edge_key)
+                    edges.append({
+                        "id": vedge["id"],
+                        "source": vedge["source"],
+                        "target": vedge["target"],
+                        "amount": vedge["amount"],
+                        "frequency": vedge["frequency"],
+                        "isCycle": False,
+                        "kind": "payment"
+                    })
+        except Exception as e:
+            # Continue even if vendor chain analysis fails
+            pass
+        
+        # Detect cycles in the network
+        cycles = detect_cycles(nodes, edges)
+        
+        # Mark edges that are part of cycles
+        edges = mark_cycle_edges(edges, cycles)
+        
         return {
             "nodes": nodes,
             "edges": edges,
-            "cycles": []
+            "cycles": cycles
         }
         
     except Exception as e:

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { StatCard } from "@/components/StatCard";
 import { InsightCard } from "@/components/InsightCard";
+import { UploadZone } from "@/components/UploadZone";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import {
@@ -9,11 +10,11 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, AlertCircle, XCircle, FileSearch, Search, Loader2 } from "lucide-react";
+import { CheckCircle2, AlertCircle, XCircle, FileSearch, Search, Loader2, ChevronUp, ChevronDown } from "lucide-react";
 import {
   Cell, Pie, PieChart, ResponsiveContainer, Tooltip, Legend,
 } from "recharts";
-import { fetchReconciliation, type ReconRow, type ReconStatus, type ReconResult } from "@/lib/api";
+import { fetchReconciliation, uploadBank, type ReconRow, type ReconStatus, type ReconResult, type UploadResult } from "@/lib/api";
 import { useSettings } from "@/lib/settings";
 
 const PIE_COLORS: Record<string, string> = {
@@ -55,6 +56,9 @@ export default function Reconciliation() {
   const [filter, setFilter] = useState<"all" | ReconStatus>("all");
   const [query, setQuery] = useState("");
   const [onlyAnomalies, setOnlyAnomalies] = useState(false);
+  const [bankFile, setBankFile] = useState<File | null>(null);
+  const [bankUploadResult, setBankUploadResult] = useState<UploadResult | null>(null);
+  const [showBankUpload, setShowBankUpload] = useState(false);
 
   // Convert similarity threshold from percentage to decimal
   const similarityThreshold = settings.match.partialMin / 100;
@@ -81,21 +85,87 @@ export default function Reconciliation() {
     });
   }, [filter, query, onlyAnomalies, data]);
 
+  const handleBankUpload = async (file: File) => {
+    setBankFile(file);
+    try {
+      const result = await uploadBank(file);
+      setBankUploadResult(result);
+      setShowBankUpload(false);
+      
+      // Fetch reconciliation data after successful bank upload
+      setLoading(true);
+      setError(null);
+      fetchReconciliation(3, similarityThreshold)
+        .then(setData)
+        .catch((e: Error) => setError(e.message))
+        .finally(() => setLoading(false));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("Bank upload failed:", msg);
+      setError(msg);
+    }
+  };
+
   if (loading) return <LoadingState />;
-  if (error) return <ErrorState message={error} />;
-  if (!data) return null;
+  if (!data && !error) return null;
 
   return (
     <>
-      {/* Summary strip */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 stagger-children">
-        <StatCard label="Total Compared"     value={String(data.total)}     icon={FileSearch} />
-        <StatCard label="Fully Matched"      value={String(data.matched)}   icon={CheckCircle2} tone="success" />
-        <StatCard label="Partially Matched"  value={String(data.partial)}   icon={AlertCircle}  tone="warning" />
-        <StatCard label="Unmatched"          value={String(data.unmatched)} icon={XCircle}      tone="destructive" />
+      {/* Bank Statement Upload Section - Always shown */}
+      <div className="card-elevated mb-6">
+        <button
+          onClick={() => setShowBankUpload(!showBankUpload)}
+          className="w-full p-5 flex items-center justify-between hover:bg-muted/50 transition-colors"
+        >
+          <div className="text-left">
+            <h3 className="text-sm font-bold text-foreground">Bank Statement File</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              {bankFile ? `Uploaded: ${bankFile.name}` : "Upload or update the bank statement file for reconciliation"}
+            </p>
+          </div>
+          {showBankUpload ? (
+            <ChevronUp className="h-4 w-4 text-muted-foreground" />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-muted-foreground" />
+          )}
+        </button>
+
+        {showBankUpload && (
+          <div className="border-t border-border p-5 bg-muted/30">
+            <UploadZone
+              label="Upload Bank Statement"
+              description="Period-matched bank statement file — CSV, XLSX, or PDF."
+              onFile={handleBankUpload}
+            />
+            {bankUploadResult && (
+              <div className="mt-4 p-4 rounded-lg border border-success/30 bg-success-soft/30">
+                <p className="text-xs text-success font-semibold">✓ Bank statement uploaded successfully</p>
+                <p className="text-xs text-muted-foreground mt-1">{bankUploadResult.rows} rows processed</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Charts */}
+      {/* Show error if there is one */}
+      {error && (
+        <div className="mb-6 p-6 rounded-xl border border-destructive/30 bg-destructive/5">
+          <p className="text-sm text-destructive font-semibold">{error}</p>
+          <p className="text-xs text-muted-foreground mt-2">Please upload a bank statement file to proceed.</p>
+        </div>
+      )}
+
+      {/* Show data if available */}
+      {data && (
+      <>
+        {/* Summary strip */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 stagger-children">
+          <StatCard label="Total Compared"     value={String(data.total)}     icon={FileSearch} />
+          <StatCard label="Fully Matched"      value={String(data.matched)}   icon={CheckCircle2} tone="success" />
+          <StatCard label="Partially Matched"  value={String(data.partial)}   icon={AlertCircle}  tone="warning" />
+          <StatCard label="Unmatched"          value={String(data.unmatched)} icon={XCircle}      tone="destructive" />
+        </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         {/* Pie chart */}
         <div className="card-elevated">
@@ -322,6 +392,8 @@ export default function Reconciliation() {
           )}
         </SheetContent>
       </Sheet>
+      </>
+      )}
     </>
   );
 }
