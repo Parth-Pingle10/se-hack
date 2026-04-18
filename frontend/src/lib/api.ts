@@ -196,6 +196,35 @@ export async function fetchNetwork(): Promise<NetworkResult> {
   return request<NetworkResult>("/analysis/network");
 }
 
+// ─── Monte Carlo ──────────────────────────────────────────────────────────
+
+export interface MonteCarloChartPoint {
+  month: string;
+  p5: number;
+  p25: number;
+  p50: number;
+  p75: number;
+  p95: number;
+}
+
+export interface MonteCarloResult {
+  survival_rate: number;
+  insolvency_risk: number;
+  current_balance: number;
+  avg_monthly_drift: number;
+  monthly_volatility: number;
+  chart_data: MonteCarloChartPoint[];
+}
+
+export async function fetchMonteCarlo(
+  iterations: number = 1000,
+  months: number = 12
+): Promise<MonteCarloResult> {
+  return request<MonteCarloResult>(
+    `/analysis/monte-carlo?iterations=${iterations}&months=${months}`
+  );
+}
+
 // ─── Health ──────────────────────────────────────────────────────────────────
 
 export async function fetchHealth(): Promise<{

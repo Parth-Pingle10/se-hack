@@ -11,6 +11,7 @@ import Fuzzy from "./pages/dashboard/Fuzzy.tsx";
 import Anomalies from "./pages/dashboard/Anomalies.tsx";
 import Reconciliation from "./pages/dashboard/Reconciliation.tsx";
 import RiskNetwork from "./pages/dashboard/RiskNetwork.tsx";
+import MonteCarlo from "./pages/dashboard/MonteCarlo.tsx";
 import Summary from "./pages/dashboard/Summary.tsx";
 import Settings from "./pages/dashboard/Settings.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -33,6 +34,7 @@ const App = () => (
             <Route path="anomalies"      element={<Anomalies />} />
             <Route path="reconciliation" element={<Reconciliation />} />
             <Route path="network"        element={<RiskNetwork />} />
+            <Route path="monte-carlo"    element={<MonteCarlo />} />
             <Route path="summary"        element={<Summary />} />
             <Route path="settings"       element={<Settings />} />
           </Route>
