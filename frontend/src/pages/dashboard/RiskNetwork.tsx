@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type MouseEvent, useEffect } from "react";
 import {
   ReactFlow, Background, Controls, MiniMap,
   type Node, type Edge, type NodeTypes,
@@ -12,8 +12,10 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Loader2, AlertCircle } from "lucide-react";
 
-import { netNodes, netEdges, cycles, type NetNodeType } from "@/lib/network";
+import { fetchNetwork, type NetworkNode, type NetworkEdge, type NetworkCycle } from "@/lib/api";
+import { updateNetworkData } from "@/lib/network";
 import { RiskNode, type RiskNodeData } from "@/components/network/RiskNode";
 import { NodeDetailPanel } from "@/components/network/NodeDetailPanel";
 import { CyclePanel } from "@/components/network/CyclePanel";
@@ -22,23 +24,26 @@ import { NetworkInsights } from "@/components/network/NetworkInsights";
 const nodeTypes: NodeTypes = { risk: RiskNode };
 
 // Deterministic radial layout grouped by type
-function layoutNodes(): Node<RiskNodeData>[] {
-  const groups: Record<NetNodeType, typeof netNodes> = { vendor: [], employee: [], account: [] };
-  netNodes.forEach((n) => groups[n.type].push(n));
+function layoutNodes(netNodes: NetworkNode[]): Node<RiskNodeData>[] {
+  const groups: Record<string, typeof netNodes> = { vendor: [], employee: [], account: [] };
+  netNodes.forEach((n) => {
+    if (!groups[n.type]) groups[n.type] = [];
+    groups[n.type].push(n);
+  });
 
   const positions: Record<string, { x: number; y: number }> = {};
   // vendors: large outer ring
-  groups.vendor.forEach((n, i, arr) => {
+  (groups.vendor || []).forEach((n, i, arr) => {
     const a = (i / arr.length) * Math.PI * 2;
     positions[n.id] = { x: 480 + Math.cos(a) * 300, y: 320 + Math.sin(a) * 240 };
   });
   // accounts: inner cluster (right)
-  groups.account.forEach((n, i, arr) => {
+  (groups.account || []).forEach((n, i, arr) => {
     const a = (i / arr.length) * Math.PI * 2;
     positions[n.id] = { x: 480 + Math.cos(a) * 110, y: 320 + Math.sin(a) * 90 };
   });
   // employees: left column
-  groups.employee.forEach((n, i) => {
+  (groups.employee || []).forEach((n, i) => {
     positions[n.id] = { x: 60, y: 140 + i * 120 };
   });
 
@@ -51,7 +56,37 @@ function layoutNodes(): Node<RiskNodeData>[] {
 }
 
 export default function RiskNetwork() {
-  const initialNodes = useMemo(layoutNodes, []);
+  // ─── All state and hooks FIRST (before any early returns) ───────────────
+  const [networkData, setNetworkData] = useState<{ nodes: NetworkNode[]; edges: NetworkEdge[]; cycles: NetworkCycle[] } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"network" | "cycles">("network");
+  const [highlightCycles, setHighlightCycles] = useState(false);
+  const [riskMin, setRiskMin] = useState(0);
+  const [highOnly, setHighOnly] = useState(false);
+  const [types, setTypes] = useState<string[]>(["vendor", "employee", "account"]);
+  const [selectedNode, setSelectedNode] = useState<string | null>(null);
+  const [selectedCycle, setSelectedCycle] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchNetwork()
+      .then((data) => {
+        setNetworkData(data);
+        updateNetworkData(data.nodes, data.edges, data.cycles || []);
+        setLoading(false);
+        setError(null);
+      })
+      .catch((e: Error) => {
+        setError(e.message);
+        setLoading(false);
+      });
+  }, []);
+
+  const netNodes = networkData?.nodes || [];
+  const netEdges = networkData?.edges || [];
+  const cycles = networkData?.cycles || [];
+
+  const initialNodes = useMemo(() => layoutNodes(netNodes), [netNodes]);
   const initialEdges: Edge[] = useMemo(
     () =>
       netEdges.map((e) => ({
@@ -63,48 +98,40 @@ export default function RiskNetwork() {
         data: { isCycle: e.isCycle, cycleId: e.cycleId, kind: e.kind, amount: e.amount },
         style: { stroke: "hsl(215 14% 70%)", strokeWidth: 1.2 },
       })),
-    [],
+    [netEdges],
   );
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  const [tab, setTab] = useState<"network" | "cycles">("network");
-  const [highlightCycles, setHighlightCycles] = useState(false);
-  const [riskMin, setRiskMin] = useState(0);
-  const [highOnly, setHighOnly] = useState(false);
-  const [types, setTypes] = useState<NetNodeType[]>(["vendor", "employee", "account"]);
+  // Update nodes when initialNodes changes
+  useEffect(() => {
+    setNodes(initialNodes);
+  }, [initialNodes, setNodes]);
 
-  const [selectedNode, setSelectedNode] = useState<string | null>(null);
-  const [selectedCycle, setSelectedCycle] = useState<string | null>(null);
+  // Update edges when initialEdges changes
+  useEffect(() => {
+    setEdges(initialEdges);
+  }, [initialEdges, setEdges]);
 
   const cycleHighlightActive = tab === "cycles" || highlightCycles;
 
-  // Apply filtering + cycle highlight to nodes/edges
   const filteredNodes: Node<RiskNodeData>[] = useMemo(() => {
     return nodes.map((n) => {
-      const meta = netNodes.find((x) => x.id === n.id)!;
-      const visible =
-        types.includes(meta.type) &&
-        meta.riskScore >= riskMin &&
-        (!highOnly || meta.riskScore >= 75);
-
+      const meta = netNodes.find((x) => x.id === n.id);
+      if (!meta) return n;
+      const visible = types.includes(meta.type) && meta.riskScore >= riskMin && (!highOnly || meta.riskScore >= 75);
       const inCycle = cycles.some((c) =>
         selectedCycle ? c.id === selectedCycle && c.nodes.includes(n.id) : c.nodes.includes(n.id),
       );
-
-      const dimmed =
-        !visible ||
-        (cycleHighlightActive && !inCycle && tab === "cycles") ||
-        (cycleHighlightActive && selectedCycle && !inCycle);
-
+      const dimmed = !visible || (cycleHighlightActive && !inCycle && tab === "cycles") || (cycleHighlightActive && selectedCycle && !inCycle);
       return {
         ...n,
         hidden: !visible,
         data: { ...n.data, dimmed: !!dimmed, inCycle: cycleHighlightActive && inCycle },
       };
     });
-  }, [nodes, types, riskMin, highOnly, cycleHighlightActive, selectedCycle, tab]);
+  }, [nodes, types, riskMin, highOnly, cycleHighlightActive, selectedCycle, tab, netNodes, cycles]);
 
   const filteredEdges: Edge[] = useMemo(() => {
     const visibleIds = new Set(filteredNodes.filter((n) => !n.hidden).map((n) => n.id));
@@ -113,11 +140,9 @@ export default function RiskNetwork() {
       const isCycle = !!data?.isCycle;
       const inSelected = selectedCycle ? data?.cycleId === selectedCycle : true;
       const visible = visibleIds.has(e.source) && visibleIds.has(e.target);
-
       let stroke = "hsl(215 14% 75%)";
       let width = 1.2;
       let opacity = 1;
-
       if (cycleHighlightActive) {
         if (isCycle && inSelected) {
           stroke = "hsl(36 82% 52%)";
@@ -128,7 +153,6 @@ export default function RiskNetwork() {
           opacity = 0.35;
         }
       }
-
       return {
         ...e,
         hidden: !visible,
@@ -137,14 +161,51 @@ export default function RiskNetwork() {
         animated: cycleHighlightActive && isCycle && inSelected,
       };
     });
-  }, [edges, filteredNodes, cycleHighlightActive, selectedCycle, tab]);
+  }, [edges, filteredNodes, cycleHighlightActive, selectedCycle, tab, cycles]);
 
-  const onNodeClick = useCallback((_: any, n: Node) => {
+  const onNodeClick = useCallback((_: MouseEvent, n: Node) => {
     setSelectedNode(n.id);
     setSelectedCycle(null);
   }, []);
 
-  const toggleType = (t: NetNodeType) => {
+  // ─── Early returns (after all hooks) ──────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin text-accent mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">Loading risk network…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || netNodes.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-96">
+        <div className="text-center max-w-sm mx-auto">
+          {error ? (
+            <>
+              <AlertCircle className="h-10 w-10 mx-auto mb-3 text-destructive/70" />
+              <p className="text-sm font-semibold text-destructive mb-1">Unable to load network data</p>
+              <p className="text-xs text-muted-foreground mb-4">{error}</p>
+              <p className="text-xs text-muted-foreground">Please upload a ledger file first using the Upload page.</p>
+            </>
+          ) : (
+            <>
+              <AlertCircle className="h-10 w-10 mx-auto mb-3 text-muted-foreground/70" />
+              <p className="text-sm font-semibold text-muted-foreground mb-1">No network data available</p>
+              <p className="text-xs text-muted-foreground">Upload a ledger file first to generate the risk network.</p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Main render (guaranteed to have data) ────────────────────────────────
+
+  const toggleType = (t: string) => {
     setTypes((cur) => (cur.includes(t) ? cur.filter((x) => x !== t) : [...cur, t]));
   };
 
@@ -152,7 +213,7 @@ export default function RiskNetwork() {
     <div className="space-y-6">
       {/* Header controls */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Tabs value={tab} onValueChange={(v) => { setTab(v as any); setSelectedCycle(null); }}>
+        <Tabs value={tab} onValueChange={(v) => { setTab(v as "network" | "cycles"); setSelectedCycle(null); }}>
           <TabsList className="rounded-lg">
             <TabsTrigger value="network" className="rounded-md text-xs font-semibold">Network View</TabsTrigger>
             <TabsTrigger value="cycles" className="rounded-md text-xs font-semibold">Circular Flows</TabsTrigger>
@@ -177,7 +238,7 @@ export default function RiskNetwork() {
         </div>
         <div>
           <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2.5">Entity type</p>
-          <ToggleGroup type="multiple" size="sm" value={types} onValueChange={(v) => v.length && setTypes(v as NetNodeType[])}>
+          <ToggleGroup type="multiple" size="sm" value={types} onValueChange={(v) => v.length && setTypes(v)}>
             <ToggleGroupItem value="vendor" className="text-xs rounded-lg">Vendors</ToggleGroupItem>
             <ToggleGroupItem value="employee" className="text-xs rounded-lg">Employees</ToggleGroupItem>
             <ToggleGroupItem value="account" className="text-xs rounded-lg">Accounts</ToggleGroupItem>
@@ -224,7 +285,7 @@ export default function RiskNetwork() {
               <MiniMap
                 pannable zoomable
                 nodeColor={(n) => {
-                  const meta = netNodes.find((x) => x.id === n.id);
+                  const meta = netNodes.find((x: any) => x.id === n.id);
                   if (!meta) return "hsl(215 14% 70%)";
                   return meta.type === "vendor" ? "hsl(224 50% 45%)"
                     : meta.type === "employee" ? "hsl(270 45% 55%)"

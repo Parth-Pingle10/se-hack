@@ -26,6 +26,8 @@ def run_reconciliation(ledger_df, bank_df, date_window=3, similarity_threshold=0
     b_df['Date'] = pd.to_datetime(b_df['Date'])
     
     l_df['MatchStatus'] = 'No Match'
+    l_df['MatchedBankDescription'] = None
+    l_df['MatchedBankAmount'] = None
     b_df['IsMatched'] = False
 
     for idx, l_row in l_df.iterrows():
@@ -48,6 +50,8 @@ def run_reconciliation(ledger_df, bank_df, date_window=3, similarity_threshold=0
         
         if best_idx is not None:
             l_df.at[idx, 'MatchStatus'] = 'Full Match' if best_sim >= similarity_threshold else 'Partial Match'
+            l_df.at[idx, 'MatchedBankDescription'] = b_df.at[best_idx, 'Description']
+            l_df.at[idx, 'MatchedBankAmount'] = b_df.at[best_idx, 'Amount']
             b_df.at[best_idx, 'IsMatched'] = True
 
     # Calculation of Error Score (Percentage of volume unmatched)

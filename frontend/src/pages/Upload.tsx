@@ -3,9 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { Logo } from "@/components/Logo";
 import { UploadZone } from "@/components/UploadZone";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, AlertCircle, Loader2, ArrowRight, Settings2, History } from "lucide-react";
+import {
+  CheckCircle2, AlertCircle, Loader2, ArrowRight,
+  Settings2, History, XCircle,
+} from "lucide-react";
+import { uploadLedger, uploadBank, type UploadResult } from "@/lib/api";
 
-type Status = "idle" | "checking" | "ready";
+type Status = "idle" | "checking" | "ready" | "error";
 type SettingsChoice = "previous" | "reconfigure" | null;
 const SETTINGS_KEY = "ledgerspy:settings";
 
@@ -14,25 +18,40 @@ export default function Upload() {
   const [ledger, setLedger] = useState<File | null>(null);
   const [bank, setBank] = useState<File | null>(null);
   const [status, setStatus] = useState<Status>("idle");
-  const [score, setScore] = useState(0);
+  const [ledgerResult, setLedgerResult] = useState<UploadResult | null>(null);
+  const [bankResult, setBankResult] = useState<UploadResult | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string>("");
   const [choice, setChoice] = useState<SettingsChoice>(null);
 
-  const hasPreviousSettings = typeof window !== "undefined" && !!localStorage.getItem(SETTINGS_KEY);
+  const hasPreviousSettings =
+    typeof window !== "undefined" && !!localStorage.getItem(SETTINGS_KEY);
   const canCheck = ledger && bank && status === "idle";
 
-  const runCheck = () => {
+  const runCheck = async () => {
+    if (!ledger || !bank) return;
     setStatus("checking");
-    setScore(0);
-    const target = 82;
-    const start = performance.now();
-    const tick = () => {
-      const p = Math.min(1, (performance.now() - start) / 1400);
-      setScore(Math.round(p * target));
-      if (p < 1) requestAnimationFrame(tick);
-      else setStatus("ready");
-    };
-    requestAnimationFrame(tick);
+    setErrorMsg("");
+
+    try {
+      const [lr, br] = await Promise.all([
+        uploadLedger(ledger),
+        uploadBank(bank),
+      ]);
+      setLedgerResult(lr);
+      setBankResult(br);
+      setStatus("ready");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMsg(msg);
+      setStatus("error");
+    }
   };
+
+  // Combined readiness score = average of both files
+  const combinedScore =
+    ledgerResult && bankResult
+      ? Math.round((ledgerResult.readiness_score + bankResult.readiness_score) / 2)
+      : 0;
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -53,13 +72,25 @@ export default function Upload() {
             <h1 className="text-2xl font-bold text-foreground tracking-tight">Upload Financial Data</h1>
             <p className="mt-2 text-sm text-muted-foreground leading-relaxed">
               Provide the ledger and corresponding bank statement to begin the readiness check.
+              <br />
+              <span className="text-xs opacity-70">
+                Required ledger columns: <code>Date, VendorName, Amount</code> · Bank columns: <code>Date, Description, Amount</code>
+              </span>
             </p>
           </div>
 
           {/* Upload zones */}
           <div className="space-y-4">
-            <UploadZone label="Upload Ledger File"     description="Trial balance or general ledger export — CSV, XLSX, or PDF." onFile={setLedger} />
-            <UploadZone label="Upload Bank Statement"  description="Period-matched bank statement file — CSV, XLSX, or PDF."      onFile={setBank} />
+            <UploadZone
+              label="Upload Ledger File"
+              description="Trial balance or general ledger export — CSV, XLSX, or PDF."
+              onFile={setLedger}
+            />
+            <UploadZone
+              label="Upload Bank Statement"
+              description="Period-matched bank statement file — CSV, XLSX, or PDF."
+              onFile={setBank}
+            />
           </div>
 
           {/* Readiness check card */}
@@ -69,31 +100,73 @@ export default function Upload() {
                 <h3 className="text-sm font-bold text-foreground">Readiness Check</h3>
                 {status === "checking" ? (
                   <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" /> Scanning…
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" /> Uploading & scanning…
                   </span>
-                ) : (
+                ) : status === "ready" ? (
                   <span className="flex items-center gap-1.5 text-xs text-success font-semibold">
                     <CheckCircle2 className="h-3.5 w-3.5" /> Complete
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-xs text-destructive font-semibold">
+                    <XCircle className="h-3.5 w-3.5" /> Failed
                   </span>
                 )}
               </div>
 
-              <div className="flex items-baseline gap-2.5 mb-3">
-                <span className="text-4xl font-bold tabular-nums text-foreground">{score}%</span>
-                <span className="text-xs text-muted-foreground">readiness score</span>
-              </div>
+              {status === "error" ? (
+                <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+                  {errorMsg}
+                </div>
+              ) : status === "ready" && ledgerResult && bankResult ? (
+                <>
+                  <div className="flex items-baseline gap-2.5 mb-3">
+                    <span className="text-4xl font-bold tabular-nums text-foreground">{combinedScore}%</span>
+                    <span className="text-xs text-muted-foreground">combined readiness score</span>
+                  </div>
 
-              {/* Progress bar */}
-              <div className="progress-premium">
-                <div className="progress-fill" style={{ width: `${score}%` }} />
-              </div>
+                  {/* Progress bar */}
+                  <div className="progress-premium">
+                    <div className="progress-fill" style={{ width: `${combinedScore}%` }} />
+                  </div>
 
-              {status === "ready" && (
-                <ul className="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs stagger-children">
-                  <Indicator label="Missing values"  value="3"  tone="warn" />
-                  <Indicator label="Duplicate rows"  value="2"  tone="warn" />
-                  <Indicator label="Format issues"   value="0"  tone="ok"   />
-                </ul>
+                  <ul className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs stagger-children">
+                    <Indicator
+                      label={`Ledger rows`}
+                      value={String(ledgerResult.rows)}
+                      tone="ok"
+                    />
+                    <Indicator
+                      label={`Bank rows`}
+                      value={String(bankResult.rows)}
+                      tone="ok"
+                    />
+                    <Indicator
+                      label="Ledger null rows"
+                      value={String(ledgerResult.null_rows)}
+                      tone={ledgerResult.null_rows > 0 ? "warn" : "ok"}
+                    />
+                    <Indicator
+                      label="Bank null rows"
+                      value={String(bankResult.null_rows)}
+                      tone={bankResult.null_rows > 0 ? "warn" : "ok"}
+                    />
+                    <Indicator
+                      label="Ledger duplicates"
+                      value={String(ledgerResult.duplicate_rows)}
+                      tone={ledgerResult.duplicate_rows > 0 ? "warn" : "ok"}
+                    />
+                    <Indicator
+                      label="Bank duplicates"
+                      value={String(bankResult.duplicate_rows)}
+                      tone={bankResult.duplicate_rows > 0 ? "warn" : "ok"}
+                    />
+                  </ul>
+                </>
+              ) : (
+                // checking state — show skeleton progress
+                <div className="progress-premium animate-pulse">
+                  <div className="progress-fill" style={{ width: "40%" }} />
+                </div>
               )}
             </div>
           )}
@@ -115,11 +188,10 @@ export default function Upload() {
                   type="button"
                   onClick={() => hasPreviousSettings && setChoice("previous")}
                   disabled={!hasPreviousSettings}
-                  className={`text-left rounded-xl border-2 p-5 transition-all duration-250 disabled:opacity-40 disabled:cursor-not-allowed ${
-                    choice === "previous"
+                  className={`text-left rounded-xl border-2 p-5 transition-all duration-250 disabled:opacity-40 disabled:cursor-not-allowed ${choice === "previous"
                       ? "border-accent bg-accent/5 shadow-sm"
                       : "border-border bg-background hover:border-accent/40 hover:shadow-sm"
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-2.5 mb-2">
                     <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
@@ -137,20 +209,19 @@ export default function Upload() {
                 <button
                   type="button"
                   onClick={() => setChoice("reconfigure")}
-                  className={`text-left rounded-xl border-2 p-5 transition-all duration-250 ${
-                    choice === "reconfigure"
+                  className={`text-left rounded-xl border-2 p-5 transition-all duration-250 ${choice === "reconfigure"
                       ? "border-accent bg-accent/5 shadow-sm"
                       : "border-border bg-background hover:border-accent/40 hover:shadow-sm"
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center gap-2.5 mb-2">
                     <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
                       <Settings2 className="h-4 w-4 text-accent" />
                     </div>
-                    <span className="text-sm font-bold text-foreground">Reconfigure</span>
+                    <span className="text-sm font-bold text-foreground">Proceed to Dashboard</span>
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Adjust matching thresholds and risk sensitivity before running.
+                    Go straight to the analysis dashboard with default settings.
                   </p>
                 </button>
               </div>
@@ -162,19 +233,33 @@ export default function Upload() {
             {status === "ready" ? (
               <Button
                 onClick={() =>
-                  navigate(choice === "reconfigure" ? "/dashboard/settings" : "/dashboard/benford")
+                  navigate(choice === "previous" ? "/dashboard/settings" : "/dashboard/benford")
                 }
                 disabled={!choice}
                 className="gap-2 rounded-xl px-6 shadow-sm hover:shadow-md transition-all duration-250"
               >
-                {choice === "reconfigure" ? "Configure Settings" : "Proceed to Dashboard"}
+                {choice === "previous" ? "Configure Settings" : "Proceed to Dashboard"}
                 <ArrowRight className="h-4 w-4" />
               </Button>
+            ) : status === "error" ? (
+              <Button
+                onClick={() => setStatus("idle")}
+                variant="outline"
+                className="rounded-xl px-6"
+              >
+                Try Again
+              </Button>
             ) : (
-              <Button onClick={runCheck} disabled={!canCheck} className="rounded-xl px-6 shadow-sm hover:shadow-md transition-all duration-250">
+              <Button
+                onClick={runCheck}
+                disabled={!canCheck || status === "checking"}
+                className="rounded-xl px-6 shadow-sm hover:shadow-md transition-all duration-250"
+              >
                 {status === "checking" ? (
-                  <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Checking…</>
-                ) : "Check Readiness"}
+                  <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Uploading…</>
+                ) : (
+                  "Check Readiness"
+                )}
               </Button>
             )}
           </div>
