@@ -1,2 +1,7 @@
 numpy 
-pandas
+pandas 
+openpyxl 
+xlrd 
+pdfplumber 
+python-docx 
+docx2pdf
