@@ -26,8 +26,8 @@ function buildBreakdown(n: NetNode): RB {
     ].sort((a, b) => b.weight - a.weight),
     why:
       cycleShare > 0
-        ? `Participates in ${incident.filter((e) => e.isCycle).length} circular edge(s); aggregate flow $${paymentVol.toLocaleString()}.`
-        : `High aggregate transaction volume ($${paymentVol.toLocaleString()}) across ${incident.length} relationships.`,
+        ? `Participates in ${incident.filter((e) => e.isCycle).length} circular edge(s); aggregate flow ₹${paymentVol.toLocaleString()}.`
+        : `High aggregate transaction volume (₹${paymentVol.toLocaleString()}) across ${incident.length} relationships.`,
   };
 }
 

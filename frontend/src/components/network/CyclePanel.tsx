@@ -20,7 +20,7 @@ export function CyclePanel({ cycleId, onClose, onSelectCycle }: {
         {cycles.map((c) => {
           const active = c.id === cycleId;
           const entities = c.nodes.map((id) => nodeById(id)?.label ?? id);
-          const insight = `Circular flow of $${c.totalValue.toLocaleString()} across ${c.nodes.length} entities over ${c.spanMonths} months`;
+          const insight = `Circular flow of ₹${c.totalValue.toLocaleString()} across ${c.nodes.length} entities over ${c.spanMonths} months`;
           return (
             <button
               key={c.id}

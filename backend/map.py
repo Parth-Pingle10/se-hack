@@ -15,21 +15,44 @@ def preprocess_data(file):
 
     df.columns = [col.strip() for col in df.columns]
 
-    df = df.rename(columns={
-        "EmployeeID": "employee",
-        "VendorName": "vendor",
-        "Amount": "amount"
-    })
+    # Handle new column names (CounterpartyName -> vendor, TransactionDate -> date)
+    rename_map = {}
+    if "CounterpartyName" in df.columns:
+        rename_map["CounterpartyName"] = "vendor"
+    elif "VendorName" in df.columns:
+        rename_map["VendorName"] = "vendor"
+    
+    if "TransactionDate" in df.columns:
+        rename_map["TransactionDate"] = "date"
+    elif "Date" in df.columns:
+        rename_map["Date"] = "date"
+    
+    if "EmployeeID" in df.columns:
+        rename_map["EmployeeID"] = "employee"
+    
+    df = df.rename(columns=rename_map)
+
+    # Create unified amount column if using new schema with IncomingAmount/OutgoingAmount
+    if "IncomingAmount" in df.columns and "OutgoingAmount" in df.columns:
+        df["IncomingAmount"] = pd.to_numeric(df["IncomingAmount"], errors="coerce").fillna(0)
+        df["OutgoingAmount"] = pd.to_numeric(df["OutgoingAmount"], errors="coerce").fillna(0)
+        df["amount"] = df["IncomingAmount"] - df["OutgoingAmount"]
+    elif "Amount" in df.columns:
+        df["amount"] = pd.to_numeric(df["Amount"], errors="coerce")
+    
+    # Handle Time column
+    if "TransactionTime" in df.columns and "Time" not in df.columns:
+        df["Time"] = df["TransactionTime"]
 
     # Combine Date + Time
-    if "Date" in df.columns and "Time" in df.columns:
-        df["time"] = df["Date"] + " " + df["Time"]
+    if "date" in df.columns and "Time" in df.columns:
+        df["time"] = df["date"].astype(str) + " " + df["Time"].astype(str)
+    elif "date" in df.columns:
+        df["time"] = df["date"]
     else:
-        df["time"] = df["Date"]
+        df["time"] = pd.Timestamp.now()
 
-    df["amount"] = pd.to_numeric(df["amount"], errors="coerce")
     df["time"] = pd.to_datetime(df["time"], errors="coerce", format="mixed")
-
     df["hour"] = df["time"].dt.hour
 
     df = df.dropna(subset=["employee", "vendor", "amount", "hour"])

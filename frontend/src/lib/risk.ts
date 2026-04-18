@@ -86,7 +86,7 @@ export function scoreTransaction(a: {
     `Flagged primarily due to ${top.label.toLowerCase()} ` +
     `(${Math.round(top.weight * 100)}% of total signal). ` +
     (amountScore > 60
-      ? `Amount of $${a.amount.toLocaleString()} is ${ratio.toFixed(1)}× the historical baseline. `
+      ? `Amount of ₹${a.amount.toLocaleString()} is ${ratio.toFixed(1)}× the historical baseline. `
       : "") +
     (vendorScore > 60 ? "Vendor name resembles other entities in the master file. " : "") +
     (justBelow ? "Amount sits just below a common approval threshold. " : "") +

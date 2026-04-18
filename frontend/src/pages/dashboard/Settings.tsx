@@ -94,7 +94,7 @@ export default function Settings() {
             <Label className="text-sm font-semibold text-foreground">Transaction amount anomaly threshold</Label>
             <p className="text-xs text-muted-foreground mt-1">Single-transaction value above which the row is auto-flagged.</p>
             <div className="mt-3 flex items-center gap-2.5">
-              <span className="text-sm text-muted-foreground font-medium">$</span>
+              <span className="text-sm text-muted-foreground font-medium">₹</span>
               <Input
                 type="number"
                 min={0}

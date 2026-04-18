@@ -59,17 +59,52 @@ async def upload_ledger(file: UploadFile = File(...)):
 
     # Normalise column names
     df.columns = [c.strip() for c in df.columns]
-    required = {"Date", "Amount", "VendorName"}
-    missing = required - set(df.columns)
-    if missing:
+    
+    # Check for new schema first (IncomingAmount/OutgoingAmount), then old schema (Amount)
+    has_incoming_outgoing = "IncomingAmount" in df.columns and "OutgoingAmount" in df.columns
+    has_amount = "Amount" in df.columns
+    
+    if not (has_incoming_outgoing or has_amount):
         raise HTTPException(
             status_code=422,
-            detail=f"Ledger is missing required columns: {missing}. Found: {list(df.columns)}"
+            detail="Ledger must have either 'Amount' column or both 'IncomingAmount' and 'OutgoingAmount' columns"
+        )
+    
+    # Check for vendor/counterparty column
+    has_counterparty = "CounterpartyName" in df.columns
+    has_vendor = "VendorName" in df.columns
+    
+    if not (has_counterparty or has_vendor):
+        raise HTTPException(
+            status_code=422,
+            detail="Ledger must have either 'CounterpartyName' or 'VendorName' column"
+        )
+    
+    # Check for date column
+    if "TransactionDate" not in df.columns and "Date" not in df.columns:
+        raise HTTPException(
+            status_code=422,
+            detail="Ledger must have either 'TransactionDate' or 'Date' column"
         )
 
-    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
+    # Normalize date column
+    date_col = "TransactionDate" if "TransactionDate" in df.columns else "Date"
+    df = df.rename(columns={date_col: "Date"})
+    
+    # Normalize vendor column
+    vendor_col = "CounterpartyName" if has_counterparty else "VendorName"
+    df = df.rename(columns={vendor_col: "VendorName"})
+    
+    # Create unified Amount column if using new schema
+    if has_incoming_outgoing:
+        df["IncomingAmount"] = pd.to_numeric(df["IncomingAmount"], errors="coerce").fillna(0)
+        df["OutgoingAmount"] = pd.to_numeric(df["OutgoingAmount"], errors="coerce").fillna(0)
+        df["Amount"] = df["IncomingAmount"] - df["OutgoingAmount"]
+    else:
+        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
+    
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    df = df.dropna(subset=["Amount"])
+    df = df.dropna(subset=["Amount", "VendorName"])
 
     session["ledger_df"] = df
 
@@ -99,17 +134,55 @@ async def upload_bank(file: UploadFile = File(...)):
         raise HTTPException(status_code=422, detail=f"Could not parse bank file: {e}")
 
     df.columns = [c.strip() for c in df.columns]
-    required = {"Date", "Amount", "Description"}
-    missing = required - set(df.columns)
-    if missing:
+    
+    # Check for new schema first (DebitAmount/CreditAmount), then old schema (Amount)
+    has_debit_credit = "DebitAmount" in df.columns and "CreditAmount" in df.columns
+    has_amount = "Amount" in df.columns
+    
+    if not (has_debit_credit or has_amount):
         raise HTTPException(
             status_code=422,
-            detail=f"Bank statement is missing required columns: {missing}. Found: {list(df.columns)}"
+            detail="Bank statement must have either 'Amount' column or both 'DebitAmount' and 'CreditAmount' columns"
         )
-
-    df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
+    
+    # Check for vendor/description column
+    has_vendor = "VendorName" in df.columns
+    has_description = "Description" in df.columns
+    
+    if not (has_vendor or has_description):
+        raise HTTPException(
+            status_code=422,
+            detail="Bank statement must have either 'VendorName' or 'Description' column"
+        )
+    
+    # Check for date column
+    if "TransactionDate" not in df.columns and "Date" not in df.columns:
+        raise HTTPException(
+            status_code=422,
+            detail="Bank statement must have either 'TransactionDate' or 'Date' column"
+        )
+    
+    # Normalize date column
+    date_col = "TransactionDate" if "TransactionDate" in df.columns else "Date"
+    df = df.rename(columns={date_col: "Date"})
+    
+    # Normalize vendor/description column to 'Description'
+    vendor_col = "VendorName" if has_vendor else "Description"
+    if vendor_col != "Description":
+        df = df.rename(columns={vendor_col: "Description"})
+    
+    # Create unified Amount column if using new schema
+    if has_debit_credit:
+        df["DebitAmount"] = pd.to_numeric(df["DebitAmount"], errors="coerce").fillna(0)
+        df["CreditAmount"] = pd.to_numeric(df["CreditAmount"], errors="coerce").fillna(0)
+        # For bank statements: we treat as signed amounts (Credit positive, Debit negative)
+        # But for reconciliation to work, we use absolute value or proper sign handling
+        df["Amount"] = df["CreditAmount"] - df["DebitAmount"]
+    else:
+        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
+    
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-    df = df.dropna(subset=["Amount"])
+    df = df.dropna(subset=["Amount", "Description"])
 
     session["bank_df"] = df
 
@@ -453,11 +526,13 @@ def analysis_reconciliation(
 
     # Append unmatched bank entries
     for j, (_, brow) in enumerate(unmatched_bank.iterrows(), start=len(rows) + 1):
+        # Bank description is normalized to 'Description' column during upload
+        bank_desc = str(brow.get("Description", ""))
         rows.append({
             "id": j,
             "date": str(brow.get("Date", ""))[:10] if pd.notna(brow.get("Date")) else "",
             "ledgerDescription": None,
-            "bankDescription": str(brow.get("Description", "")),
+            "bankDescription": bank_desc,
             "ledgerAmount": None,
             "bankAmount": float(brow["Amount"]),
             "status": "unmatched",
@@ -504,16 +579,32 @@ def analysis_network():
         df_work = df.copy()
         df_work.columns = [c.strip() for c in df_work.columns]
         
-        # Rename to match map.py expectations
+        # Rename to match map.py expectations - handle both old and new schema
         rename_map = {}
-        if "VendorName" in df_work.columns:
+        
+        # Handle vendor column
+        if "CounterpartyName" in df_work.columns:
+            rename_map["CounterpartyName"] = "vendor"
+        elif "VendorName" in df_work.columns:
             rename_map["VendorName"] = "vendor"
+        
+        # Handle employee column
         if "EmployeeID" in df_work.columns:
             rename_map["EmployeeID"] = "employee"
         elif "Employee" in df_work.columns:
             rename_map["Employee"] = "employee"
+        
+        # Handle amount - already normalized during upload but be defensive
         if "Amount" in df_work.columns:
             rename_map["Amount"] = "amount"
+        
+        # Handle date columns
+        if "TransactionDate" in df_work.columns and "Date" not in df_work.columns:
+            rename_map["TransactionDate"] = "Date"
+        
+        # Handle time columns
+        if "TransactionTime" in df_work.columns and "Time" not in df_work.columns:
+            rename_map["TransactionTime"] = "Time"
         
         df_work = df_work.rename(columns=rename_map)
         
@@ -521,7 +612,7 @@ def analysis_network():
         if "employee" not in df_work.columns:
             df_work["employee"] = "Unknown"
         if "vendor" not in df_work.columns:
-            raise HTTPException(status_code=422, detail="Missing required 'VendorName' or 'vendor' column")
+            raise HTTPException(status_code=422, detail="Missing required 'CounterpartyName'/'VendorName' column")
         if "amount" not in df_work.columns:
             raise HTTPException(status_code=422, detail="Missing required 'Amount' column")
         

@@ -23,7 +23,7 @@ const PIE_COLORS: Record<string, string> = {
 };
 
 const fmt = (n: number | null) =>
-  n === null ? "—" : n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+  n === null ? "—" : n.toLocaleString("en-IN", { style: "currency", currency: "INR" });
 
 const statusMeta: Record<ReconStatus, { label: string; row: string; pill: string; dot: string }> = {
   matched: {
@@ -346,7 +346,7 @@ function CompareBox({ title, description, amount }: { title: string; description
         <>
           <p className="text-sm font-semibold text-foreground mt-1 leading-snug">{description ?? "—"}</p>
           <p className="text-sm tabular-nums text-foreground mt-2">
-            {amount !== null ? amount.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "—"}
+            {amount !== null ? amount.toLocaleString("en-IN", { style: "currency", currency: "INR" }) : "—"}
           </p>
         </>
       )}

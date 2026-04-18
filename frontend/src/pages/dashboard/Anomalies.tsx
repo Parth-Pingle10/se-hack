@@ -16,7 +16,7 @@ function riskTone(r: number) {
   return { label: "Low", bar: "bg-success", text: "text-success", bg: "bg-success-soft" };
 }
 
-const fmt = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD" });
+const fmt = (n: number) => n.toLocaleString("en-IN", { style: "currency", currency: "INR" });
 
 export default function Anomalies() {
   const { settings } = useSettings();

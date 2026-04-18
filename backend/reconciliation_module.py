@@ -25,6 +25,13 @@ def run_reconciliation(ledger_df, bank_df, date_window=3, similarity_threshold=0
     l_df['Date'] = pd.to_datetime(l_df['Date'])
     b_df['Date'] = pd.to_datetime(b_df['Date'])
     
+    # Handle column name variations
+    # After normalization in upload endpoints, we should have:
+    # Ledger: VendorName (normalized from CounterpartyName if needed)
+    # Bank: Description (normalized from VendorName if needed)
+    ledger_vendor_col = 'VendorName' if 'VendorName' in l_df.columns else 'CounterpartyName'
+    bank_vendor_col = 'Description' if 'Description' in b_df.columns else 'VendorName'
+    
     l_df['MatchStatus'] = 'No Match'
     l_df['MatchedBankDescription'] = None
     l_df['MatchedBankAmount'] = None
@@ -43,14 +50,14 @@ def run_reconciliation(ledger_df, bank_df, date_window=3, similarity_threshold=0
         best_idx = None
         
         for b_idx, b_row in candidates.iterrows():
-            sim = simple_levenshtein(l_row['VendorName'], b_row['Description'])
+            sim = simple_levenshtein(l_row[ledger_vendor_col], b_row[bank_vendor_col])
             if sim > best_sim:
                 best_sim = sim
                 best_idx = b_idx
         
         if best_idx is not None:
             l_df.at[idx, 'MatchStatus'] = 'Full Match' if best_sim >= similarity_threshold else 'Partial Match'
-            l_df.at[idx, 'MatchedBankDescription'] = b_df.at[best_idx, 'Description']
+            l_df.at[idx, 'MatchedBankDescription'] = b_df.at[best_idx, bank_vendor_col]
             l_df.at[idx, 'MatchedBankAmount'] = b_df.at[best_idx, 'Amount']
             b_df.at[best_idx, 'IsMatched'] = True
 

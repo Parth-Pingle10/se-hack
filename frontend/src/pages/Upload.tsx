@@ -8,6 +8,7 @@ import {
   Settings2, History, XCircle,
 } from "lucide-react";
 import { uploadLedger, uploadBank, type UploadResult } from "@/lib/api";
+import { loadSettings, saveSettings } from "@/lib/settings";
 
 type Status = "idle" | "checking" | "ready" | "error";
 type SettingsChoice = "previous" | "reconfigure" | null;
@@ -172,7 +173,7 @@ export default function Upload() {
           )}
 
           {/* Settings choice */}
-          {status === "ready" && (
+          {status === "ready" && combinedScore >= 80 && (
             <div className="mt-6 card-elevated p-6 fade-in">
               <div className="inline-flex items-center gap-2 rounded-full bg-accent/8 px-3 py-1 mb-3">
                 <div className="h-1.5 w-1.5 rounded-full bg-accent" />
@@ -228,17 +229,45 @@ export default function Upload() {
             </div>
           )}
 
+          {/* Low readiness warning */}
+          {status === "ready" && combinedScore < 80 && (
+            <div className="mt-6 card-elevated p-6 fade-in border border-warning/30 bg-warning/5">
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" />
+                <div>
+                  <h3 className="text-sm font-bold text-foreground">Low Data Quality</h3>
+                  <p className="mt-1.5 text-xs text-muted-foreground leading-relaxed">
+                    The combined readiness score is {combinedScore}%, which is below the 80% threshold required for automated analysis.
+                  </p>
+                  <p className="mt-2 text-xs text-muted-foreground leading-relaxed">
+                    You can only proceed with manual audit report generation. Please clean your data and try again, or contact support for assistance.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Action button */}
           <div className="mt-8 flex justify-end">
             {status === "ready" ? (
               <Button
-                onClick={() =>
-                  navigate(choice === "previous" ? "/dashboard/settings" : "/dashboard/benford")
-                }
-                disabled={!choice}
+                onClick={() => {
+                  if (combinedScore >= 80) {
+                    if (choice === "previous") {
+                      // Load previous settings and navigate to dashboard
+                      const previousSettings = loadSettings();
+                      saveSettings(previousSettings);
+                      navigate("/dashboard/benford");
+                    } else if (choice === "reconfigure") {
+                      // Navigate to settings to configure new settings
+                      navigate("/dashboard/settings");
+                    }
+                  }
+                }}
+                disabled={!choice || combinedScore < 80}
                 className="gap-2 rounded-xl px-6 shadow-sm hover:shadow-md transition-all duration-250"
               >
-                {choice === "previous" ? "Configure Settings" : "Proceed to Dashboard"}
+                {choice === "previous" ? "Use Previous Settings" : "Proceed to Dashboard"}
                 <ArrowRight className="h-4 w-4" />
               </Button>
             ) : status === "error" ? (

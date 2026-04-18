@@ -32,19 +32,23 @@ function layoutNodes(netNodes: NetworkNode[]): Node<RiskNodeData>[] {
   });
 
   const positions: Record<string, { x: number; y: number }> = {};
-  // vendors: large outer ring
+  const centerX = 0;
+  const centerY = 0;
+  
+  // vendors: large outer ring with more spacing
   (groups.vendor || []).forEach((n, i, arr) => {
     const a = (i / arr.length) * Math.PI * 2;
-    positions[n.id] = { x: 480 + Math.cos(a) * 300, y: 320 + Math.sin(a) * 240 };
+    positions[n.id] = { x: centerX + Math.cos(a) * 280, y: centerY + Math.sin(a) * 220 };
   });
-  // accounts: inner cluster (right)
+  // accounts: medium ring
   (groups.account || []).forEach((n, i, arr) => {
     const a = (i / arr.length) * Math.PI * 2;
-    positions[n.id] = { x: 480 + Math.cos(a) * 110, y: 320 + Math.sin(a) * 90 };
+    positions[n.id] = { x: centerX + Math.cos(a) * 120, y: centerY + Math.sin(a) * 100 };
   });
-  // employees: left column
+  // employees: left column with increased spacing
   (groups.employee || []).forEach((n, i) => {
-    positions[n.id] = { x: 60, y: 140 + i * 120 };
+    const offset = (i - ((groups.employee?.length || 1) - 1) / 2) * 100;
+    positions[n.id] = { x: centerX - 180, y: centerY + offset };
   });
 
   return netNodes.map((n) => ({
@@ -265,7 +269,7 @@ export default function RiskNetwork() {
       {/* Main grid */}
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="card-elevated overflow-hidden flex" style={{ height: 620 }}>
-          <div className="flex-1 relative">
+          <div className="flex-1 relative w-full h-full">
             <ReactFlow
               nodes={filteredNodes}
               edges={filteredEdges}
@@ -275,9 +279,10 @@ export default function RiskNetwork() {
               onNodeClick={onNodeClick}
               onPaneClick={() => { setSelectedNode(null); }}
               fitView
-              fitViewOptions={{ padding: 0.2 }}
+              fitViewOptions={{ padding: 0.35, maxZoom: 1.2, minZoom: 0.5 }}
               proOptions={{ hideAttribution: true }}
-              minZoom={0.3}
+              defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+              minZoom={0.1}
               maxZoom={1.8}
             >
               <Background gap={16} size={1} color="hsl(216 16% 90%)" />

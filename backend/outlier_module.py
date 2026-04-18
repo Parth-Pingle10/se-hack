@@ -27,7 +27,7 @@ def plot_outliers(df, save_path='anomaly_scatter.png'):
     plt.scatter(df['Hour'], df['Amount'], c=colors, alpha=0.6, s=50)
     plt.title('Anomaly Detection: High-Risk Outliers (Red)')
     plt.xlabel('Hour of Day')
-    plt.ylabel('Amount ($)')
+    plt.ylabel('Amount (₹)')
     plt.tight_layout()
     plt.savefig(save_path)
     plt.close()

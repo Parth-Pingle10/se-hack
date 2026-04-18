@@ -45,7 +45,7 @@ export function NetworkInsights({ onSelect }: { onSelect?: (id: string) => void 
         <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Detected cycles</p>
         <p className="text-sm font-bold text-foreground">{cycles.length} circular flows</p>
         <p className="text-xs text-muted-foreground mt-1">
-          Total value circulated: ${cycles.reduce((s, c) => s + c.totalValue, 0).toLocaleString()}
+          Total value circulated: ₹${cycles.reduce((s, c) => s + c.totalValue, 0).toLocaleString()}
         </p>
       </div>
     </div>
