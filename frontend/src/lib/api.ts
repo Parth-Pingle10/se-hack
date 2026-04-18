@@ -225,6 +225,17 @@ export async function fetchMonteCarlo(
   );
 }
 
+// ─── Memo Generation ─────────────────────────────────────────────────────
+
+export interface GenerateMemoResult {
+  status: string;
+  memo: string;
+}
+
+export async function generateAuditMemo(): Promise<GenerateMemoResult> {
+  return request<GenerateMemoResult>("/analysis/generate-memo");
+}
+
 // ─── Health ──────────────────────────────────────────────────────────────────
 
 export async function fetchHealth(): Promise<{

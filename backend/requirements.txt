@@ -12,3 +12,9 @@ uvicorn[standard]
 python-multipart
 seaborn
 matplotlib
+langchain
+langchain-core
+langchain-community
+langchain-ollama
+ollama
+requests

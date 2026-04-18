@@ -11,6 +11,7 @@ from outlier_module import detect_outliers
 from fuzzy_module import calculate_levenshtein, get_similarity_matrix
 from reconciliation_module import run_reconciliation
 from monte_carlo import run_monte_carlo_stress_test
+from memo_generator import generate_audit_memo
 from map import preprocess_data, compute_benford_scores, compute_anomaly_scores, fuzzy_matching, compute_risk_scores, generate_graph
 
 app = FastAPI(title="LedgerSpy API", version="1.0.0")
@@ -707,6 +708,58 @@ def analysis_monte_carlo(iterations: int = Query(1000, ge=100, le=10000), months
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Monte Carlo analysis failed: {str(e)}")
+
+
+@app.get("/analysis/generate-memo")
+def analysis_generate_memo():
+    """
+    Generate comprehensive audit memo using LLM (Ollama).
+    Combines Benford, Anomaly, Fuzzy, Reconciliation, and Monte Carlo analyses.
+    Requires: ledger file uploaded, all analyses available.
+    """
+    df = require_ledger()
+    require_bank()  # Ensure bank data is available for reconciliation
+    
+    try:
+        # Collect all analysis data with explicit parameters to avoid Query object issues
+        benford_data = analysis_benford(column="Amount")
+        anomaly_data = analysis_anomalies(contamination=0.05)
+        fuzzy_data = analysis_fuzzy(threshold=0.7, max_vendors=60)
+        recon_data = analysis_reconciliation(date_window=3, similarity_threshold=0.6)
+        monte_carlo_data = analysis_monte_carlo(iterations=1000, months=12)
+        
+        # Generate memo using LLM
+        memo_text = generate_audit_memo(
+            benford_data=benford_data,
+            anomaly_data=anomaly_data,
+            fuzzy_data=fuzzy_data,
+            reconciliation_data=recon_data,
+            monte_carlo_data=monte_carlo_data,
+        )
+        
+        return {
+            "status": "success",
+            "memo": memo_text,
+        }
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        error_msg = str(e)
+        
+        # Check for Ollama connection errors
+        if "Connection refused" in error_msg or "Failed to reach" in error_msg or "refused" in error_msg.lower():
+            raise HTTPException(
+                status_code=503,
+                detail="Cannot connect to Ollama. Please ensure Ollama is running on localhost:11434 with qwen2.5:3b model loaded."
+            )
+        elif "qwen2.5:3b" in error_msg.lower():
+            raise HTTPException(
+                status_code=503,
+                detail="Ollama model 'qwen2.5:3b' not found. Please run 'ollama pull qwen2.5:3b' first."
+            )
+        else:
+            raise HTTPException(status_code=500, detail=f"Memo generation failed: {error_msg}")
 
 
 @app.get("/health")
