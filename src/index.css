@@ -1,0 +1,424 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ═══════════════════════════════════════════════════════════════
+   LedgerSpy Design System — Refined Fintech Audit Aesthetic
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer base {
+  :root {
+    /* Background & Surface */
+    --background: 214 25% 97%;
+    --foreground: 222 28% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222 28% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 28% 11%;
+
+    /* Deep navy primary — trust, authority, audit */
+    --primary: 224 50% 24%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 214 22% 94%;
+    --secondary-foreground: 222 25% 18%;
+
+    --muted: 214 22% 94%;
+    --muted-foreground: 215 14% 46%;
+
+    /* Refined teal accent */
+    --accent: 174 55% 38%;
+    --accent-foreground: 0 0% 100%;
+    --accent-soft: 174 50% 94%;
+
+    --destructive: 0 62% 56%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 156 48% 39%;
+    --success-foreground: 0 0% 100%;
+    --success-soft: 156 40% 94%;
+
+    --warning: 36 82% 52%;
+    --warning-foreground: 30 50% 12%;
+    --warning-soft: 36 75% 94%;
+
+    --border: 216 16% 90%;
+    --input: 216 16% 88%;
+    --ring: 174 55% 38%;
+
+    --radius: 0.625rem;
+
+    /* Refined shadow system */
+    --shadow-sm: 0 1px 2px 0 hsl(222 28% 11% / 0.03), 0 0 0 1px hsl(222 28% 11% / 0.02);
+    --shadow-md: 0 2px 8px -2px hsl(222 28% 11% / 0.06), 0 1px 2px -1px hsl(222 28% 11% / 0.04);
+    --shadow-lg: 0 8px 24px -4px hsl(222 28% 11% / 0.08), 0 2px 8px -2px hsl(222 28% 11% / 0.04);
+    --shadow-xl: 0 16px 48px -8px hsl(222 28% 11% / 0.12), 0 4px 12px -4px hsl(222 28% 11% / 0.06);
+
+    /* Sidebar — deep navy */
+    --sidebar-background: 224 36% 13%;
+    --sidebar-foreground: 216 20% 72%;
+    --sidebar-primary: 174 55% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 224 28% 19%;
+    --sidebar-accent-foreground: 0 0% 97%;
+    --sidebar-border: 224 24% 20%;
+    --sidebar-ring: 174 55% 48%;
+  }
+
+  .dark {
+    --background: 224 30% 8%;
+    --foreground: 210 30% 96%;
+
+    --card: 224 26% 11%;
+    --card-foreground: 210 30% 96%;
+
+    --popover: 224 26% 11%;
+    --popover-foreground: 210 30% 96%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 224 50% 18%;
+
+    --secondary: 224 22% 15%;
+    --secondary-foreground: 210 30% 96%;
+
+    --muted: 224 22% 15%;
+    --muted-foreground: 215 14% 58%;
+
+    --accent: 174 55% 48%;
+    --accent-foreground: 224 50% 10%;
+    --accent-soft: 174 40% 16%;
+
+    --destructive: 0 58% 54%;
+    --destructive-foreground: 0 0% 100%;
+
+    --success: 156 44% 48%;
+    --success-foreground: 0 0% 100%;
+    --success-soft: 156 28% 16%;
+
+    --warning: 36 82% 54%;
+    --warning-foreground: 30 50% 12%;
+    --warning-soft: 36 35% 18%;
+
+    --border: 224 20% 18%;
+    --input: 224 20% 18%;
+    --ring: 174 55% 48%;
+
+    --sidebar-background: 224 32% 8%;
+    --sidebar-foreground: 216 20% 72%;
+    --sidebar-primary: 174 55% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 224 26% 14%;
+    --sidebar-accent-foreground: 0 0% 97%;
+    --sidebar-border: 224 24% 16%;
+    --sidebar-ring: 174 55% 48%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-feature-settings: 'ss01', 'ss02';
+    letter-spacing: -0.01em;
+  }
+  h1, h2, h3, h4 {
+    @apply tracking-tight;
+    letter-spacing: -0.02em;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Animations & Transitions
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer utilities {
+  .fade-in {
+    animation: fadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  .fade-in-slow {
+    animation: fadeIn 0.8s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  .fade-in-up {
+    animation: fadeInUp 0.5s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  .slide-in-left {
+    animation: slideInLeft 0.3s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  .scale-in {
+    animation: scaleIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  .pulse-glow {
+    animation: pulseGlow 2s ease-in-out infinite;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-12px); }
+    to   { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.96); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  @keyframes pulseGlow {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(var(--accent) / 0); }
+    50%      { box-shadow: 0 0 20px 4px hsl(var(--accent) / 0.15); }
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-6px); }
+  }
+  @keyframes shimmer {
+    0%   { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  /* Stagger children fade-in */
+  .stagger-children > * {
+    animation: fadeInUp 0.35s cubic-bezier(0.4, 0, 0.2, 1) both;
+  }
+  .stagger-children > *:nth-child(1)  { animation-delay: 0ms; }
+  .stagger-children > *:nth-child(2)  { animation-delay: 60ms; }
+  .stagger-children > *:nth-child(3)  { animation-delay: 120ms; }
+  .stagger-children > *:nth-child(4)  { animation-delay: 180ms; }
+  .stagger-children > *:nth-child(5)  { animation-delay: 240ms; }
+  .stagger-children > *:nth-child(6)  { animation-delay: 300ms; }
+  .stagger-children > *:nth-child(7)  { animation-delay: 360ms; }
+  .stagger-children > *:nth-child(8)  { animation-delay: 420ms; }
+  .stagger-children > *:nth-child(9)  { animation-delay: 480ms; }
+  .stagger-children > *:nth-child(10) { animation-delay: 540ms; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Premium Card Styles
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+  .card-elevated {
+    @apply rounded-xl border border-border bg-card;
+    box-shadow: var(--shadow-md);
+    transition: box-shadow 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+  }
+  .card-elevated:hover {
+    box-shadow: var(--shadow-lg);
+    border-color: hsl(var(--border) / 0.6);
+  }
+
+  .card-interactive {
+    @apply card-elevated cursor-pointer;
+  }
+  .card-interactive:hover {
+    transform: translateY(-1px);
+  }
+  .card-interactive:active {
+    transform: translateY(0);
+  }
+
+  /* Glass effect card for premium sections */
+  .card-glass {
+    @apply rounded-xl border border-white/10;
+    background: hsl(var(--card) / 0.7);
+    backdrop-filter: blur(12px) saturate(1.5);
+    box-shadow: var(--shadow-md);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Landing Page Styles
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+  .landing-bg {
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 40%, hsl(174 55% 38% / 0.05) 0%, transparent 70%),
+      radial-gradient(ellipse 60% 50% at 70% 60%, hsl(224 50% 24% / 0.06) 0%, transparent 70%),
+      hsl(var(--background));
+  }
+
+  .landing-grid {
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.3) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.3) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black 20%, transparent 80%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black 20%, transparent 80%);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Enhanced Table Styles
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+  .table-premium thead {
+    @apply bg-muted/50;
+  }
+  .table-premium thead th {
+    @apply font-semibold px-5 py-3.5 text-xs uppercase tracking-wider text-muted-foreground border-b-2 border-border;
+  }
+  .table-premium tbody tr {
+    @apply border-b border-border/60 transition-colors duration-200;
+  }
+  .table-premium tbody tr:hover {
+    @apply bg-accent/[0.04];
+  }
+  .table-premium tbody tr:last-child {
+    @apply border-0;
+  }
+  .table-premium tbody td {
+    @apply px-5 py-3.5;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Sidebar Enhancements
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+  .sidebar-link {
+    @apply relative flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-200;
+  }
+  .sidebar-link::before {
+    content: '';
+    @apply absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-0 rounded-full transition-all duration-200;
+    background: hsl(var(--sidebar-primary));
+  }
+  .sidebar-link[data-active="true"]::before {
+    @apply h-5;
+  }
+  .sidebar-link[data-active="true"] {
+    @apply bg-sidebar-accent text-sidebar-accent-foreground;
+  }
+  .sidebar-link:not([data-active="true"]):hover {
+    @apply bg-sidebar-accent/40 text-sidebar-accent-foreground;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Upload Zone Enhancement
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+  .upload-zone {
+    @apply relative rounded-xl border-2 border-dashed bg-card transition-all duration-250;
+    border-color: hsl(var(--border));
+  }
+  .upload-zone:hover {
+    border-color: hsl(var(--accent) / 0.5);
+    box-shadow: 0 0 0 4px hsl(var(--accent) / 0.06);
+  }
+  .upload-zone[data-drag="true"] {
+    border-color: hsl(var(--accent));
+    box-shadow: 0 0 0 4px hsl(var(--accent) / 0.12), 0 0 24px 0 hsl(var(--accent) / 0.08);
+    background: hsl(var(--accent-soft) / 0.4);
+  }
+  .upload-zone[data-done="true"] {
+    border-color: hsl(var(--success) / 0.5);
+    border-style: solid;
+    box-shadow: 0 0 0 4px hsl(var(--success) / 0.06);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Progress Bar Enhancement
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+  .progress-premium {
+    @apply relative h-2 w-full overflow-hidden rounded-full;
+    background: hsl(var(--muted));
+  }
+  .progress-premium .progress-fill {
+    @apply h-full rounded-full transition-all duration-300 ease-out;
+    background: linear-gradient(90deg, hsl(var(--accent)), hsl(174 55% 48%));
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TipTap Memo Editor — Refined typographic styling
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer components {
+  .prose-memo h1 {
+    @apply text-lg font-bold text-foreground mt-0 mb-3 tracking-tight;
+  }
+  .prose-memo h2 {
+    @apply text-xs font-bold text-foreground uppercase tracking-widest mt-6 mb-2;
+    color: hsl(var(--primary));
+  }
+  .prose-memo p {
+    @apply text-sm text-foreground leading-relaxed mb-3;
+  }
+  .prose-memo ul {
+    @apply list-disc pl-5 mb-4 space-y-1.5;
+  }
+  .prose-memo ol {
+    @apply list-decimal pl-5 mb-4 space-y-1.5;
+  }
+  .prose-memo li {
+    @apply text-sm text-foreground leading-relaxed;
+  }
+  .prose-memo em {
+    @apply text-muted-foreground not-italic text-xs;
+  }
+  .prose-memo strong {
+    @apply font-bold;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   Scrollbar Customization
+   ═══════════════════════════════════════════════════════════════ */
+
+@layer base {
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.3);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   React Flow Overrides
+   ═══════════════════════════════════════════════════════════════ */
+
+.react-flow__controls {
+  box-shadow: var(--shadow-md) !important;
+  border-radius: 0.5rem !important;
+  overflow: hidden;
+}
+.react-flow__controls-button {
+  border-bottom: 1px solid hsl(var(--border)) !important;
+}
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+.react-flow__minimap {
+  box-shadow: var(--shadow-md) !important;
+  border-radius: 0.5rem !important;
+}
