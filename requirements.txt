@@ -1,7 +1,9 @@
-numpy 
-pandas 
-openpyxl 
-xlrd 
-pdfplumber 
-python-docx 
-docx2pdf
+numpy
+pandas
+openpyxl
+xlrd
+pdfplumber
+python-docx
+docx2pdf 
+scikit-learn 
+rapidfuzz

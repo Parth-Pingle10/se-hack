@@ -1,6 +1,10 @@
+venv/
 bad_data.csv
 messy_financial_ledger.csv
-venv/
 log book 2024300179.pdf
 log book 2024300179_combined.csv
 data.csv
+graph_data.json
+fraud_demo_dataset.csv
+messy_financial_ledger.csv
+synthetic_ledger2.csv
