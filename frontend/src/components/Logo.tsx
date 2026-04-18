@@ -17,15 +17,15 @@ export function Logo({ className, size = "md", variant = "dark" }: LogoProps) {
   return (
     <div className={cn("flex items-center", sizes.gap, className)}>
       <div className={cn(
-        "flex items-center justify-center rounded-xl",
-        size === "lg" ? "h-14 w-14" : size === "md" ? "h-8 w-8" : "h-6 w-6",
+        "flex items-center justify-center rounded-lg",
+        size === "lg" ? "h-12 w-12" : size === "md" ? "h-8 w-8" : "h-6 w-6",
         variant === "light"
-          ? "bg-sidebar-primary/10"
+          ? "bg-sidebar-primary/15"
           : "bg-accent/10"
       )}>
         <ShieldCheck
           className={cn(sizes.icon, variant === "light" ? "text-sidebar-primary" : "text-accent")}
-          strokeWidth={2.2}
+          strokeWidth={2}
         />
       </div>
       <span
@@ -34,6 +34,7 @@ export function Logo({ className, size = "md", variant = "dark" }: LogoProps) {
           sizes.text,
           variant === "light" ? "text-sidebar-accent-foreground" : "text-foreground"
         )}
+        style={{ fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-0.03em" }}
       >
         Ledger<span className={variant === "light" ? "text-sidebar-primary" : "text-accent"}>Spy</span>
       </span>

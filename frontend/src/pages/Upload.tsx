@@ -219,10 +219,10 @@ export default function Upload() {
                     <div className="h-8 w-8 rounded-lg bg-accent/10 flex items-center justify-center">
                       <Settings2 className="h-4 w-4 text-accent" />
                     </div>
-                    <span className="text-sm font-bold text-foreground">Proceed to Dashboard</span>
+                    <span className="text-sm font-bold text-foreground">Reconfigure Settings</span>
                   </div>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Go straight to the analysis dashboard with default settings.
+                    Adjust thresholds, risk sensitivity, and active analyzers before running analysis.
                   </p>
                 </button>
               </div>
@@ -267,7 +267,7 @@ export default function Upload() {
                 disabled={!choice || combinedScore < 80}
                 className="gap-2 rounded-xl px-6 shadow-sm hover:shadow-md transition-all duration-250"
               >
-                {choice === "previous" ? "Use Previous Settings" : "Proceed to Dashboard"}
+                {choice === "previous" ? "Use Previous Settings" : "Reconfigure Settings"}
                 <ArrowRight className="h-4 w-4" />
               </Button>
             ) : status === "error" ? (

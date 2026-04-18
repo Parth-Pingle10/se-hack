@@ -18,13 +18,15 @@ export type LedgerSpySettings = {
     fuzzy: boolean;
     anomalies: boolean;
     reconciliation: boolean;
+    riskNetwork: boolean;
+    monteCarlo: boolean;
   };
 };
 
 export const defaultSettings: LedgerSpySettings = {
   match:   { exactMin: 90, partialMin: 70 },
   risk:    { outlier: 65, benfordTolerance: 15, amountThreshold: 50000 },
-  modules: { benford: true, fuzzy: true, anomalies: true, reconciliation: true },
+  modules: { benford: true, fuzzy: true, anomalies: true, reconciliation: true, riskNetwork: true, monteCarlo: true },
 };
 
 export function loadSettings(): LedgerSpySettings {
