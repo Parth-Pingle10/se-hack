@@ -55,17 +55,20 @@ export default function DashboardLayout() {
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top header bar */}
-        <header className="h-16 border-b border-border bg-card/80 backdrop-blur-sm flex items-center justify-between px-6 sm:px-8 sticky top-0 z-20">
+        <header className="h-14 border-b border-border bg-card flex items-center justify-between px-6 sm:px-8 sticky top-0 z-20">
           <div className="min-w-0">
-            <h1 className="text-base font-bold text-foreground truncate">{meta.title}</h1>
-            <p className="text-xs text-muted-foreground truncate -mt-0.5">{meta.subtitle}</p>
+            <h1
+              className="text-sm font-semibold text-foreground truncate leading-tight"
+              style={{ fontFamily: "'Space Grotesk', sans-serif", letterSpacing: "-0.02em" }}
+            >{meta.title}</h1>
+            <p className="text-[11px] text-muted-foreground truncate mt-0.5 font-normal">{meta.subtitle}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-2 rounded-lg text-xs">
+            <Button variant="outline" size="sm" className="gap-1.5 rounded-md text-xs h-8 px-3 font-medium">
               <Download className="h-3.5 w-3.5" />
               Export
             </Button>
-            <Button size="sm" onClick={() => setConfirmOpen(true)} className="gap-2 rounded-lg text-xs shadow-sm">
+            <Button size="sm" onClick={() => setConfirmOpen(true)} className="gap-1.5 rounded-md text-xs h-8 px-3 font-medium shadow-none">
               <Plus className="h-3.5 w-3.5" />
               New Analysis
             </Button>

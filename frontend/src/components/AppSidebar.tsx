@@ -65,21 +65,21 @@ export function AppSidebar() {
       </div>
 
       <nav className="flex-1 px-3 py-5 flex flex-col overflow-auto">
-        <p className="px-3 mb-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-sidebar-foreground/40">
+        <p className="px-3 mb-2 text-[10px] font-semibold uppercase text-sidebar-foreground/35" style={{ letterSpacing: '0.1em' }}>
           Analysis
         </p>
         <ul className="space-y-0.5">{itemsConfig.map(renderItem).filter(Boolean)}</ul>
 
-        <p className="px-3 mt-7 mb-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-sidebar-foreground/40">
+        <p className="px-3 mt-6 mb-2 text-[10px] font-semibold uppercase text-sidebar-foreground/35" style={{ letterSpacing: '0.1em' }}>
           Configuration
         </p>
         <ul className="space-y-0.5">{config.map(renderItem).filter(Boolean)}</ul>
       </nav>
 
       <div className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-2 text-[10px] text-sidebar-foreground/40">
-          <div className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
-          v0.1 · Offline mode
+        <div className="flex items-center gap-2">
+          <div className="h-1.5 w-1.5 rounded-full bg-green-400" />
+          <span className="text-[10px] text-sidebar-foreground/35 font-medium tracking-wide">v0.1 — Offline</span>
         </div>
       </div>
     </aside>
