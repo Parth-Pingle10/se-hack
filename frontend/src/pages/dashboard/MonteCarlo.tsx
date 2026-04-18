@@ -115,7 +115,7 @@ export default function MonteCarlo() {
           label="Projected Median (Month 12)"
           value={formatCurrency(endingBalance)}
           icon={TrendingUp}
-          tone={endingBalance > currentBalance ? "success" : endingBalance > 0 ? "warning" : "danger"}
+          tone={endingBalance > currentBalance ? "success" : endingBalance > 0 ? "warning" : "destructive"}
         />
         <StatCard
           label="Avg Monthly Drift"
