@@ -9,7 +9,7 @@ import { InsightCard } from "@/components/InsightCard";
 import { GlobalInsightPanel } from "@/components/GlobalInsightPanel";
 import {
   FileText, Copy, Download, CheckCircle2, AlertTriangle, Eye, Loader2, Save,
-  Bold, Italic, List, ListOrdered, Heading1, Heading2,
+  Bold, Italic, List, ListOrdered, Heading1, Heading2, type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
@@ -185,7 +185,7 @@ function Toolbar({ editor }: { editor: Editor }) {
 
 function Section({
   icon: Icon, tone, title, items,
-}: { icon: any; tone: string; title: string; items: string[] }) {
+}: { icon: LucideIcon; tone: string; title: string; items: string[] }) {
   return (
     <div className="card-elevated p-6">
       <div className="flex items-center gap-2.5 mb-4">

@@ -31,9 +31,9 @@ export type Cycle = {
   spanMonths: number;
 };
 
-// --- Mock data -------------------------------------------------------------
+// --- Mock data (fallback) -------------------------------------------------
 
-export const netNodes: NetNode[] = [
+const mockNetNodes: NetNode[] = [
   // vendors
   { id: "v-acme",     label: "Acme Corp",          type: "vendor",   riskScore: 88, totalTxns: 42 },
   { id: "v-globex",   label: "Globex Inc",         type: "vendor",   riskScore: 81, totalTxns: 36 },
@@ -56,7 +56,7 @@ export const netNodes: NetNode[] = [
 // Two circular trading loops are pre-encoded:
 // Cycle C1: v-acme -> v-globex -> v-initech -> v-acme  (vendor↔vendor round-trip via shared accounts)
 // Cycle C2: v-stark -> a-003 -> v-umbrella -> v-stark
-const rawEdges: Omit<NetEdge, "id">[] = [
+const mockRawEdges: Omit<NetEdge, "id">[] = [
   // approvals
   { source: "e-jdoe",     target: "v-acme",     amount: 0,        frequency: 12, isCycle: false, kind: "approval" },
   { source: "e-jdoe",     target: "v-globex",   amount: 0,        frequency: 9,  isCycle: false, kind: "approval" },
@@ -91,16 +91,16 @@ const rawEdges: Omit<NetEdge, "id">[] = [
   { source: "v-umbrella", target: "a-002",      amount: 11000,    frequency: 3,  isCycle: false, kind: "shared-account" },
 ];
 
-export const netEdges: NetEdge[] = rawEdges.map((e, i) => ({
+const mockNetEdges: NetEdge[] = mockRawEdges.map((e, i) => ({
   ...e,
   id: `e-${i}-${e.source}-${e.target}`,
 }));
 
-export const cycles: Cycle[] = [
+const mockCycles: Cycle[] = [
   {
     id: "C1",
     nodes: ["v-acme", "v-globex", "v-initech"],
-    edgeIds: netEdges.filter((e) => e.cycleId === "C1").map((e) => e.id),
+    edgeIds: mockNetEdges.filter((e) => e.cycleId === "C1").map((e) => e.id),
     totalValue: 325000,
     loops: 4,
     spanMonths: 18,
@@ -108,12 +108,25 @@ export const cycles: Cycle[] = [
   {
     id: "C2",
     nodes: ["v-stark", "a-003", "v-umbrella"],
-    edgeIds: netEdges.filter((e) => e.cycleId === "C2").map((e) => e.id),
+    edgeIds: mockNetEdges.filter((e) => e.cycleId === "C2").map((e) => e.id),
     totalValue: 220000,
     loops: 3,
     spanMonths: 12,
   },
 ];
+
+// --- Reactive data -------------------------------------------------------
+
+export let netNodes: NetNode[] = mockNetNodes;
+export let netEdges: NetEdge[] = mockNetEdges;
+export let cycles: Cycle[] = mockCycles;
+
+// Use this to update all exports at once (e.g., from RiskNetwork)
+export function updateNetworkData(nodes: any[], edges: any[], cycleList: Cycle[]) {
+  netNodes = nodes;
+  netEdges = edges;
+  cycles = cycleList;
+}
 
 // --- Helpers ---------------------------------------------------------------
 

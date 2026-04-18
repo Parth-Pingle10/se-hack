@@ -1,21 +1,42 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Input } from "@/components/ui/input";
-import { Search, Users } from "lucide-react";
-import { fuzzyMatches, similarityHistogram, vendorClusters } from "@/lib/mockData";
+import { Search, Users, Loader2, AlertCircle } from "lucide-react";
 import { InsightCard } from "@/components/InsightCard";
 import { cn } from "@/lib/utils";
+import { fetchFuzzy, type FuzzyResult } from "@/lib/api";
+import { useSettings } from "@/lib/settings";
 
 export default function Fuzzy() {
+  const { settings } = useSettings();
+  const [data, setData] = useState<FuzzyResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
 
+  // Convert exact match threshold to fuzzy threshold (0-1 scale)
+  const threshold = settings.match.exactMin / 100;
+
+  useEffect(() => {
+    setLoading(true);
+    fetchFuzzy(threshold)
+      .then(setData)
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [threshold]);
+
   const rows = useMemo(() => {
+    if (!data) return [];
     const term = q.trim().toLowerCase();
-    if (!term) return fuzzyMatches;
-    return fuzzyMatches.filter(
+    if (!term) return data.matches;
+    return data.matches.filter(
       (r) => r.vendorA.toLowerCase().includes(term) || r.vendorB.toLowerCase().includes(term)
     );
-  }, [q]);
+  }, [q, data]);
+
+  if (loading) return <LoadingState />;
+  if (error) return <ErrorState message={error} />;
+  if (!data) return null;
 
   return (
     <div className="space-y-6 stagger-children">
@@ -24,12 +45,14 @@ export default function Fuzzy() {
         <div className="lg:col-span-2 card-elevated">
           <div className="p-6 border-b border-border">
             <h2 className="text-sm font-bold text-foreground">Similarity Score Distribution</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">How vendor pairs are spread across similarity bands.</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              How vendor pairs are spread across similarity bands ({data.total_vendors} vendors analysed).
+            </p>
           </div>
           <div className="p-6">
             <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={similarityHistogram} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                <BarChart data={data.similarity_histogram} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                   <XAxis dataKey="bucket" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))", fontWeight: 500 }} axisLine={false} tickLine={false} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
@@ -41,8 +64,15 @@ export default function Fuzzy() {
                     boxShadow: "var(--shadow-lg)",
                   }} />
                   <Bar dataKey="count" name="Vendor pairs" radius={[4, 4, 0, 0]}>
-                    {similarityHistogram.map((b, i) => (
-                      <Cell key={i} fill={b.bucket.startsWith("0.8") || b.bucket.startsWith("0.9") ? "hsl(var(--warning))" : "hsl(var(--primary))"} />
+                    {data.similarity_histogram.map((b, i) => (
+                      <Cell
+                        key={i}
+                        fill={
+                          b.bucket.startsWith("0.8") || b.bucket.startsWith("0.9")
+                            ? "hsl(var(--warning))"
+                            : "hsl(var(--primary))"
+                        }
+                      />
                     ))}
                   </Bar>
                 </BarChart>
@@ -57,8 +87,11 @@ export default function Fuzzy() {
             <h2 className="text-sm font-bold text-foreground">Vendor Clusters</h2>
             <p className="text-xs text-muted-foreground mt-0.5">Groups of likely-duplicate vendors.</p>
           </div>
-          <div className="p-5 space-y-3">
-            {vendorClusters.map((c) => (
+          <div className="p-5 space-y-3 max-h-[320px] overflow-y-auto">
+            {data.vendor_clusters.length === 0 && (
+              <p className="text-sm text-muted-foreground text-center py-6">No clusters found above threshold.</p>
+            )}
+            {data.vendor_clusters.map((c) => (
               <div key={c.id} className="rounded-xl border border-border bg-background p-4 transition-colors duration-200 hover:bg-muted/30">
                 <div className="flex items-center justify-between mb-2.5">
                   <div className="flex items-center gap-2.5">
@@ -67,7 +100,9 @@ export default function Fuzzy() {
                     </div>
                     <p className="text-sm font-semibold text-foreground">{c.label}</p>
                   </div>
-                  <span className="text-xs font-bold tabular-nums text-foreground bg-muted px-2 py-0.5 rounded">{c.avgScore.toFixed(2)}</span>
+                  <span className="text-xs font-bold tabular-nums text-foreground bg-muted px-2 py-0.5 rounded">
+                    {c.avgScore.toFixed(2)}
+                  </span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {c.members.map((m) => (
@@ -83,9 +118,11 @@ export default function Fuzzy() {
       <InsightCard
         tone="warning"
         insights={[
-          `${vendorClusters.length} vendor clusters show high naming similarity, suggesting possible duplicate master records.`,
+          data.vendor_clusters.length > 0
+            ? `${data.vendor_clusters.length} vendor cluster(s) detected with high naming similarity — possible duplicate master records.`
+            : "No vendor clusters found above the similarity threshold.",
+          `${data.flagged_pairs} vendor pair(s) share similarity ≥ 0.70 out of ${data.total_vendors} vendors checked.`,
           "Pairs above 0.85 should be reviewed for consolidation before payment runs.",
-          "Naming variants like 'Inc' vs 'Incorporated' are the most common source of duplication.",
         ]}
       />
 
@@ -121,12 +158,7 @@ export default function Fuzzy() {
               {rows.map((r) => {
                 const high = r.score >= 0.85;
                 return (
-                  <tr
-                    key={r.id}
-                    className={cn(
-                      high && "bg-warning-soft/20"
-                    )}
-                  >
+                  <tr key={r.id} className={cn(high && "bg-warning-soft/20")}>
                     <td className="font-semibold text-foreground">{r.vendorA}</td>
                     <td className="text-muted-foreground">{r.vendorB}</td>
                     <td className="text-right tabular-nums font-bold text-foreground">
@@ -144,12 +176,32 @@ export default function Fuzzy() {
                 );
               })}
               {rows.length === 0 && (
-                <tr><td colSpan={4} className="px-5 py-10 text-center text-muted-foreground text-sm">No matches.</td></tr>
+                <tr><td colSpan={4} className="px-5 py-10 text-center text-muted-foreground text-sm">No matches found.</td></tr>
               )}
             </tbody>
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="flex flex-col items-center justify-center h-80 gap-4 text-muted-foreground">
+      <Loader2 className="h-8 w-8 animate-spin text-accent" />
+      <p className="text-sm">Running fuzzy vendor matching…</p>
+    </div>
+  );
+}
+
+function ErrorState({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-80 gap-3 text-destructive">
+      <AlertCircle className="h-8 w-8" />
+      <p className="text-sm font-semibold">Failed to load fuzzy analysis</p>
+      <p className="text-xs text-muted-foreground max-w-sm text-center">{message}</p>
+      <p className="text-xs text-muted-foreground">Make sure you uploaded a ledger file first.</p>
     </div>
   );
 }

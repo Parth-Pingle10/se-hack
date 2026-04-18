@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Building2, User, Landmark } from "lucide-react";
+import { Building2, User, Landmark, type LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { NetNodeType } from "@/lib/network";
 
@@ -13,7 +13,7 @@ export type RiskNodeData = {
   selected?: boolean;
 };
 
-const typeStyles: Record<NetNodeType, { ring: string; bg: string; icon: any; tone: string }> = {
+const typeStyles: Record<NetNodeType, { ring: string; bg: string; icon: LucideIcon; tone: string }> = {
   vendor:   { ring: "ring-[hsl(224,50%,45%)]", bg: "bg-[hsl(224,50%,45%)]/10",  icon: Building2, tone: "text-[hsl(224,50%,35%)]" },
   employee: { ring: "ring-[hsl(270,45%,55%)]", bg: "bg-[hsl(270,45%,55%)]/10",  icon: User,      tone: "text-[hsl(270,45%,45%)]" },
   account:  { ring: "ring-muted-foreground",   bg: "bg-muted",                  icon: Landmark,  tone: "text-muted-foreground" },

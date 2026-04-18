@@ -1,18 +1,46 @@
-import { Bar, BarChart, CartesianGrid, Cell, Legend, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { benfordData, benfordDeviation } from "@/lib/mockData";
+import { useEffect, useState } from "react";
+import {
+  Bar, BarChart, CartesianGrid, Cell, Legend,
+  ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
+} from "recharts";
 import { StatCard } from "@/components/StatCard";
 import { InsightCard } from "@/components/InsightCard";
 import { RiskBadge } from "@/components/RiskBadge";
-import { benfordForensic } from "@/lib/risk";
-import { TrendingUp, AlertTriangle, Activity, ShieldAlert } from "lucide-react";
+import type { RiskBand } from "@/lib/risk";
+import { TrendingUp, AlertTriangle, Activity, ShieldAlert, Loader2, AlertCircle } from "lucide-react";
+import { fetchBenford, type BenfordResult } from "@/lib/api";
+import { useSettings } from "@/lib/settings";
+
+function toBand(band: string): RiskBand {
+  const b = band.toLowerCase();
+  if (b === "high") return "high";
+  if (b === "moderate" || b === "medium") return "medium";
+  return "low";
+}
 
 export default function Benford() {
-  const topSuspect = [...benfordDeviation]
+  const { settings } = useSettings();
+  const [data, setData] = useState<BenfordResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchBenford()
+      .then(setData)
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <LoadingState />;
+  if (error) return <ErrorState message={error} />;
+  if (!data) return null;
+
+  const topSuspect = [...data.chart_data]
     .sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation))
     .slice(0, 3);
 
-  const forensic = benfordForensic();
-  const sigCount = forensic.rows.filter((r) => r.significant).length;
+  const sigCount = data.significant_digits.length;
 
   return (
     <div className="space-y-6 stagger-children">
@@ -24,22 +52,34 @@ export default function Benford() {
           </div>
           <div>
             <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Benford Risk Score</p>
-            <p className="text-lg font-bold text-foreground tabular-nums">{forensic.score} / 100</p>
+            <p className="text-lg font-bold text-foreground tabular-nums">{data.benford_score} / 100</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
-          <RiskBadge score={forensic.score} band={forensic.band} />
+          <RiskBadge score={data.benford_score} band={toBand(data.band)} />
           <span className="text-xs text-muted-foreground">
-            {sigCount} digit{sigCount === 1 ? "" : "s"} statistically significant (|z| ≥ 1.96)
+            {sigCount} digit{sigCount === 1 ? "" : "s"} deviate by &gt;1.5% from expected
           </span>
         </div>
       </div>
 
       {/* Stats row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <StatCard label="Records analyzed" value="12,481" icon={Activity} />
-        <StatCard label="Chi-square"        value="14.7"   hint="Above expected threshold" icon={TrendingUp} tone="warning" />
-        <StatCard label="Suspect digits"    value={String(sigCount)} hint="By Z-score significance" icon={AlertTriangle} tone="warning" />
+        <StatCard label="Records analyzed" value={data.records_analyzed.toLocaleString()} icon={Activity} />
+        <StatCard
+          label="Chi-square"
+          value={String(data.chi_square)}
+          hint={data.chi_square > 15 ? "Above expected threshold" : "Within normal range"}
+          icon={TrendingUp}
+          tone={data.chi_square > 15 ? "warning" : undefined}
+        />
+        <StatCard
+          label="Suspect digits"
+          value={String(sigCount)}
+          hint="By deviation significance (>1.5%)"
+          icon={AlertTriangle}
+          tone={sigCount > 2 ? "warning" : undefined}
+        />
       </div>
 
       {/* Charts row */}
@@ -55,7 +95,7 @@ export default function Benford() {
           <div className="p-6">
             <div className="h-[320px]">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={benfordData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                <BarChart data={data.chart_data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                   <XAxis dataKey="digit" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))", fontWeight: 500 }} axisLine={false} tickLine={false} />
                   <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} unit="%" />
@@ -68,6 +108,7 @@ export default function Benford() {
                       fontSize: 12,
                       boxShadow: "var(--shadow-lg)",
                     }}
+                    formatter={(v: number, name: string) => [`${Number(v).toFixed(2)}%`, name]}
                   />
                   <Legend wrapperStyle={{ fontSize: 12, paddingTop: 12 }} iconType="circle" />
                   <Bar dataKey="expected" name="Expected" fill="hsl(var(--muted-foreground) / 0.25)" radius={[4, 4, 0, 0]} />
@@ -117,7 +158,7 @@ export default function Benford() {
         <div className="p-6">
           <div className="h-[220px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={benfordDeviation} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+              <BarChart data={data.chart_data} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                 <XAxis dataKey="digit" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))", fontWeight: 500 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} unit="%" />
@@ -130,7 +171,7 @@ export default function Benford() {
                 }} />
                 <ReferenceLine y={0} stroke="hsl(var(--border))" />
                 <Bar dataKey="deviation" name="Deviation" radius={[4, 4, 0, 0]}>
-                  {benfordDeviation.map((d) => (
+                  {data.chart_data.map((d) => (
                     <Cell key={d.digit} fill={Math.abs(d.deviation) > 1.5 ? "hsl(var(--warning))" : "hsl(var(--muted-foreground) / 0.25)"} />
                   ))}
                 </Bar>
@@ -141,13 +182,37 @@ export default function Benford() {
       </div>
 
       <InsightCard
-        tone="warning"
+        tone={data.benford_score >= 60 ? "warning" : "default"}
         insights={[
-          "Digit 9 occurs ~1.5× more often than expected — manipulation indicator.",
-          "Digit 7 is materially under-represented relative to Benford's expectation.",
-          "Overall conformity is moderate; segment by vendor or business unit for finer detection.",
+          sigCount > 0
+            ? `${sigCount} digit(s) deviate significantly from Benford's expected distribution.`
+            : "All digits conform closely to Benford's Law — data appears unmanipulated.",
+          data.chi_square > 15
+            ? `Chi-square statistic (${data.chi_square}) exceeds the typical threshold — review manually.`
+            : `Chi-square (${data.chi_square}) is within normal range.`,
+          "Segment by vendor or category for a finer-grained Benford analysis.",
         ]}
       />
+    </div>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="flex flex-col items-center justify-center h-80 gap-4 text-muted-foreground">
+      <Loader2 className="h-8 w-8 animate-spin text-accent" />
+      <p className="text-sm">Running Benford analysis…</p>
+    </div>
+  );
+}
+
+function ErrorState({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-80 gap-3 text-destructive">
+      <AlertCircle className="h-8 w-8" />
+      <p className="text-sm font-semibold">Failed to load Benford analysis</p>
+      <p className="text-xs text-muted-foreground max-w-sm text-center">{message}</p>
+      <p className="text-xs text-muted-foreground">Make sure you uploaded a ledger file first.</p>
     </div>
   );
 }

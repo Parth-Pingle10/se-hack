@@ -4,6 +4,11 @@ openpyxl
 xlrd
 pdfplumber
 python-docx
-docx2pdf 
-scikit-learn 
+docx2pdf
+scikit-learn
 rapidfuzz
+fastapi
+uvicorn[standard]
+python-multipart
+seaborn
+matplotlib

@@ -1,5 +1,4 @@
-import { useMemo, useState } from "react";
-import { reconciliation, reconStatusDistribution, reconTrend, type ReconRow, type ReconStatus } from "@/lib/mockData";
+import { useEffect, useMemo, useState } from "react";
 import { StatCard } from "@/components/StatCard";
 import { InsightCard } from "@/components/InsightCard";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -10,11 +9,12 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { CheckCircle2, AlertCircle, XCircle, FileSearch, Search } from "lucide-react";
+import { CheckCircle2, AlertCircle, XCircle, FileSearch, Search, Loader2 } from "lucide-react";
 import {
   Cell, Pie, PieChart, ResponsiveContainer, Tooltip, Legend,
-  CartesianGrid, Line, LineChart, XAxis, YAxis,
 } from "recharts";
+import { fetchReconciliation, type ReconRow, type ReconStatus, type ReconResult } from "@/lib/api";
+import { useSettings } from "@/lib/settings";
 
 const PIE_COLORS: Record<string, string> = {
   Matched:   "hsl(var(--success))",
@@ -47,20 +47,29 @@ const statusMeta: Record<ReconStatus, { label: string; row: string; pill: string
 };
 
 export default function Reconciliation() {
+  const { settings } = useSettings();
+  const [data, setData] = useState<ReconResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<ReconRow | null>(null);
   const [filter, setFilter] = useState<"all" | ReconStatus>("all");
   const [query, setQuery] = useState("");
   const [onlyAnomalies, setOnlyAnomalies] = useState(false);
 
-  const totals = useMemo(() => {
-    const matched = reconciliation.filter((r) => r.status === "matched").length;
-    const partial = reconciliation.filter((r) => r.status === "partial").length;
-    const unmatched = reconciliation.filter((r) => r.status === "unmatched").length;
-    return { total: reconciliation.length, matched, partial, unmatched };
-  }, []);
+  // Convert similarity threshold from percentage to decimal
+  const similarityThreshold = settings.match.partialMin / 100;
+
+  useEffect(() => {
+    setLoading(true);
+    fetchReconciliation(3, similarityThreshold)
+      .then(setData)
+      .catch((e: Error) => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [similarityThreshold]);
 
   const rows = useMemo(() => {
-    return reconciliation.filter((r) => {
+    if (!data) return [];
+    return data.rows.filter((r) => {
       if (onlyAnomalies && r.status === "matched") return false;
       if (filter !== "all" && r.status !== filter) return false;
       if (query.trim()) {
@@ -70,16 +79,20 @@ export default function Reconciliation() {
       }
       return true;
     });
-  }, [filter, query, onlyAnomalies]);
+  }, [filter, query, onlyAnomalies, data]);
+
+  if (loading) return <LoadingState />;
+  if (error) return <ErrorState message={error} />;
+  if (!data) return null;
 
   return (
     <>
       {/* Summary strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6 stagger-children">
-        <StatCard label="Total Compared" value={String(totals.total)} icon={FileSearch} />
-        <StatCard label="Fully Matched" value={String(totals.matched)} icon={CheckCircle2} tone="success" />
-        <StatCard label="Partially Matched" value={String(totals.partial)} icon={AlertCircle} tone="warning" />
-        <StatCard label="Unmatched" value={String(totals.unmatched)} icon={XCircle} tone="destructive" />
+        <StatCard label="Total Compared"     value={String(data.total)}     icon={FileSearch} />
+        <StatCard label="Fully Matched"      value={String(data.matched)}   icon={CheckCircle2} tone="success" />
+        <StatCard label="Partially Matched"  value={String(data.partial)}   icon={AlertCircle}  tone="warning" />
+        <StatCard label="Unmatched"          value={String(data.unmatched)} icon={XCircle}      tone="destructive" />
       </div>
 
       {/* Charts */}
@@ -94,8 +107,8 @@ export default function Reconciliation() {
             <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie data={reconStatusDistribution} dataKey="value" nameKey="name" innerRadius={50} outerRadius={75} paddingAngle={3} strokeWidth={0}>
-                    {reconStatusDistribution.map((s) => (
+                  <Pie data={data.status_distribution} dataKey="value" nameKey="name" innerRadius={50} outerRadius={75} paddingAngle={3} strokeWidth={0}>
+                    {data.status_distribution.map((s) => (
                       <Cell key={s.name} fill={PIE_COLORS[s.name]} />
                     ))}
                   </Pie>
@@ -113,32 +126,32 @@ export default function Reconciliation() {
           </div>
         </div>
 
-        {/* Line chart */}
+        {/* Error score panel */}
         <div className="lg:col-span-2 card-elevated">
           <div className="p-6 border-b border-border">
-            <h2 className="text-sm font-bold text-foreground">Mismatches Over Time</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Monthly trend across the engagement period.</p>
+            <h2 className="text-sm font-bold text-foreground">Reconciliation Summary</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">Overall quality metrics for this reconciliation run.</p>
           </div>
-          <div className="p-6">
-            <div className="h-[220px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={reconTrend} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))", fontWeight: 500 }} axisLine={false} tickLine={false} />
-                  <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={{
-                    background: "hsl(var(--popover))",
-                    border: "1px solid hsl(var(--border))",
-                    borderRadius: 10,
-                    fontSize: 12,
-                    boxShadow: "var(--shadow-lg)",
-                  }} />
-                  <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" />
-                  <Line type="monotone" dataKey="matched"   name="Matched"   stroke="hsl(var(--success))"     strokeWidth={2.5} dot={false} />
-                  <Line type="monotone" dataKey="partial"   name="Partial"   stroke="hsl(var(--warning))"     strokeWidth={2.5} dot={false} />
-                  <Line type="monotone" dataKey="unmatched" name="Unmatched" stroke="hsl(var(--destructive))" strokeWidth={2.5} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
+          <div className="p-6 grid grid-cols-2 gap-6">
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Error Score</p>
+              <p className="text-4xl font-bold tabular-nums text-foreground">{data.error_score}%</p>
+              <p className="text-xs text-muted-foreground mt-1">% of total volume unmatched</p>
+              <div className="mt-3 h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    data.error_score > 30 ? "bg-destructive" : data.error_score > 10 ? "bg-warning" : "bg-success"
+                  )}
+                  style={{ width: `${Math.min(100, data.error_score)}%` }}
+                />
+              </div>
+            </div>
+            <div className="space-y-3">
+              <SummaryRow label="Match rate" value={`${data.total > 0 ? ((data.matched / data.total) * 100).toFixed(1) : 0}%`} good />
+              <SummaryRow label="Partial rate" value={`${data.total > 0 ? ((data.partial / data.total) * 100).toFixed(1) : 0}%`} good={data.partial === 0} />
+              <SummaryRow label="Unmatched entries" value={String(data.unmatched)} good={data.unmatched === 0} />
+              <SummaryRow label="Ledger rows" value={String(data.total)} good />
             </div>
           </div>
         </div>
@@ -146,11 +159,15 @@ export default function Reconciliation() {
 
       <InsightCard
         className="mb-6"
-        tone="warning"
+        tone={data.error_score > 20 ? "warning" : "default"}
         insights={[
-          "Spike in unmatched entries during December — investigate cut-off and timing differences.",
-          `${totals.unmatched} unmatched and ${totals.partial} partial entries account for the majority of exposure.`,
-          "Recurring partial-match pattern with Initech LLC suggests a standing fee or rounding adjustment.",
+          data.unmatched > 0
+            ? `${data.unmatched} unmatched entr${data.unmatched === 1 ? "y" : "ies"} found — investigate for missing invoices or bank records.`
+            : "All ledger entries have corresponding bank records.",
+          data.partial > 0
+            ? `${data.partial} partial match${data.partial === 1 ? "" : "es"} detected — amount or description discrepancies exist.`
+            : "No partial matches — all amounts align perfectly.",
+          `Overall error score: ${data.error_score}% of total transaction volume is unreconciled.`,
         ]}
       />
 
@@ -160,7 +177,7 @@ export default function Reconciliation() {
           <div>
             <h2 className="text-sm font-bold text-foreground">Bank Statement Reconciliation</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Compare ledger entries against bank records. Click a row to inspect discrepancies.
+              Compare ledger entries against bank records. Click a row to inspect.
             </p>
           </div>
 
@@ -201,11 +218,11 @@ export default function Reconciliation() {
             <thead className="sticky top-0 bg-card z-10">
               <tr className="text-left">
                 <th className="w-28">Date</th>
-                <th>Ledger</th>
-                <th>Bank</th>
+                <th>Ledger / Vendor</th>
+                <th>Bank Description</th>
                 <th className="text-right">Ledger Amt</th>
                 <th className="text-right">Bank Amt</th>
-                <th className="text-right">Difference</th>
+                <th>Category</th>
                 <th>Status</th>
               </tr>
             </thead>
@@ -223,26 +240,18 @@ export default function Reconciliation() {
                   <tr
                     key={r.id}
                     onClick={() => setSelected(r)}
-                    className={cn(
-                      "cursor-pointer",
-                      meta.row,
-                    )}
+                    className={cn("cursor-pointer", meta.row)}
                   >
                     <td className="tabular-nums text-muted-foreground">{r.date}</td>
                     <td className="text-foreground">
                       {r.ledgerDescription ?? <span className="text-muted-foreground italic">— missing —</span>}
                     </td>
                     <td className="text-foreground">
-                      {r.bankDescription ?? <span className="text-muted-foreground italic">— missing —</span>}
+                      {r.bankDescription ?? (r.status === "unmatched" ? <span className="text-muted-foreground italic">— missing —</span> : "—")}
                     </td>
                     <td className="text-right tabular-nums">{fmt(r.ledgerAmount)}</td>
                     <td className="text-right tabular-nums">{fmt(r.bankAmount)}</td>
-                    <td className={cn(
-                      "text-right tabular-nums font-semibold",
-                      r.difference === 0 ? "text-muted-foreground" : "text-foreground",
-                    )}>
-                      {r.difference === 0 ? "—" : fmt(r.difference)}
-                    </td>
+                    <td className="text-muted-foreground">{r.category || "—"}</td>
                     <td>
                       <span className={cn("inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-md", meta.pill)}>
                         <span className={cn("h-1.5 w-1.5 rounded-full", meta.dot)} />
@@ -265,31 +274,20 @@ export default function Reconciliation() {
               <SheetHeader>
                 <div className="flex items-center gap-2">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground border border-border rounded-md px-2 py-0.5">
-                    Explainable Insight
+                    Reconciliation Detail
                   </span>
                 </div>
                 <SheetTitle className="text-base font-bold">Transaction · {selected.date}</SheetTitle>
-                <SheetDescription className="text-xs">
-                  Reconciliation entry #{selected.id}
-                </SheetDescription>
+                <SheetDescription className="text-xs">Entry #{selected.id}</SheetDescription>
               </SheetHeader>
 
               <div className="mt-6 space-y-5">
-                {/* Side-by-side compare */}
                 <div className="grid grid-cols-2 gap-3">
-                  <CompareBox
-                    title="Ledger"
-                    description={selected.ledgerDescription}
-                    amount={selected.ledgerAmount}
-                  />
-                  <CompareBox
-                    title="Bank"
-                    description={selected.bankDescription}
-                    amount={selected.bankAmount}
-                  />
+                  <CompareBox title="Ledger" description={selected.ledgerDescription} amount={selected.ledgerAmount} />
+                  <CompareBox title="Bank"   description={selected.bankDescription}   amount={selected.bankAmount}   />
                 </div>
 
-                {/* Discrepancy */}
+                {/* Status */}
                 <div className={cn(
                   "rounded-xl border p-5",
                   selected.status === "matched"
@@ -298,11 +296,13 @@ export default function Reconciliation() {
                     ? "border-warning/20 bg-warning-soft/30"
                     : "border-destructive/20 bg-destructive/5",
                 )}>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                    Discrepancy
-                  </p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Status Detail</p>
                   <p className="text-sm text-foreground leading-relaxed">
-                    {selected.note ?? "No discrepancies detected. Ledger and bank record are in full agreement."}
+                    {selected.status === "matched"
+                      ? "Full match — ledger and bank records agree on amount and description."
+                      : selected.status === "partial"
+                      ? "Partial match — description fuzzy-matched but amounts may differ, or vice versa."
+                      : "No matching bank record found for this ledger entry, or unmatched bank credit."}
                   </p>
                   {selected.difference !== 0 && (
                     <p className="text-xs text-muted-foreground mt-2 tabular-nums">
@@ -311,32 +311,10 @@ export default function Reconciliation() {
                   )}
                 </div>
 
-                {/* History */}
-                {selected.history && selected.history.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                      Related Historical Transactions
-                    </p>
-                    <div className="rounded-xl border border-border overflow-hidden">
-                      <table className="w-full text-xs">
-                        <thead className="bg-muted/40">
-                          <tr className="text-left text-muted-foreground">
-                            <th className="font-semibold px-3 py-2.5">Date</th>
-                            <th className="font-semibold px-3 py-2.5">Description</th>
-                            <th className="font-semibold px-3 py-2.5 text-right">Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {selected.history.map((h, i) => (
-                            <tr key={i} className="border-t border-border">
-                              <td className="px-3 py-2.5 tabular-nums text-muted-foreground">{h.date}</td>
-                              <td className="px-3 py-2.5 text-foreground">{h.description}</td>
-                              <td className="px-3 py-2.5 text-right tabular-nums text-foreground">{fmt(h.amount)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                {selected.category && (
+                  <div className="rounded-lg bg-muted/30 p-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Category</p>
+                    <p className="text-sm font-semibold text-foreground mt-1">{selected.category}</p>
                   </div>
                 )}
               </div>
@@ -348,9 +326,16 @@ export default function Reconciliation() {
   );
 }
 
-function CompareBox({
-  title, description, amount,
-}: { title: string; description: string | null; amount: number | null }) {
+function SummaryRow({ label, value, good }: { label: string; value: string; good: boolean }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className={cn("text-xs font-bold tabular-nums", good ? "text-success" : "text-warning")}>{value}</span>
+    </div>
+  );
+}
+
+function CompareBox({ title, description, amount }: { title: string; description: string | null; amount: number | null }) {
   const missing = description === null && amount === null;
   return (
     <div className="rounded-xl border border-border bg-muted/20 p-4">
@@ -359,12 +344,32 @@ function CompareBox({
         <p className="text-sm italic text-destructive mt-1">No matching record</p>
       ) : (
         <>
-          <p className="text-sm font-semibold text-foreground mt-1 leading-snug">
-            {description ?? "—"}
+          <p className="text-sm font-semibold text-foreground mt-1 leading-snug">{description ?? "—"}</p>
+          <p className="text-sm tabular-nums text-foreground mt-2">
+            {amount !== null ? amount.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "—"}
           </p>
-          <p className="text-sm tabular-nums text-foreground mt-2">{fmt(amount)}</p>
         </>
       )}
+    </div>
+  );
+}
+
+function LoadingState() {
+  return (
+    <div className="flex flex-col items-center justify-center h-80 gap-4 text-muted-foreground">
+      <Loader2 className="h-8 w-8 animate-spin text-accent" />
+      <p className="text-sm">Running reconciliation…</p>
+    </div>
+  );
+}
+
+function ErrorState({ message }: { message: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center h-80 gap-3 text-destructive">
+      <AlertCircle className="h-8 w-8" />
+      <p className="text-sm font-semibold">Failed to load reconciliation</p>
+      <p className="text-xs text-muted-foreground max-w-sm text-center">{message}</p>
+      <p className="text-xs text-muted-foreground">Make sure you uploaded both a ledger and bank statement first.</p>
     </div>
   );
 }

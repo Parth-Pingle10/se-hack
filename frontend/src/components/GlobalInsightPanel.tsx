@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, ShieldAlert, TrendingUp } from "lucide-react";
+import { Activity, AlertTriangle, ShieldAlert, TrendingUp, type LucideIcon } from "lucide-react";
 import { networkRisk, vendorRisks } from "@/lib/risk";
 import { anomalies } from "@/lib/mockData";
 import { RiskBadge } from "./RiskBadge";
@@ -58,7 +58,7 @@ export function GlobalInsightPanel({ className }: { className?: string }) {
   );
 }
 
-function Stat({ icon: Icon, label, value, hint }: { icon: any; label: string; value: string; hint?: string }) {
+function Stat({ icon: Icon, label, value, hint }: { icon: LucideIcon; label: string; value: string; hint?: string }) {
   return (
     <div className="p-5 transition-colors duration-200 hover:bg-muted/30">
       <div className="flex items-center gap-2 text-muted-foreground mb-2">

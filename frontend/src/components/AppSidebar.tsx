@@ -1,25 +1,32 @@
-import { BarChart3, GitCompare, AlertTriangle, FileCheck2, Scale, Share2, Settings as SettingsIcon } from "lucide-react";
+import { BarChart3, GitCompare, AlertTriangle, FileCheck2, Scale, Share2, Settings as SettingsIcon, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
+import { useSettings } from "@/lib/settings";
 
-const items = [
-  { title: "Benford Analysis",    url: "/dashboard/benford",        icon: BarChart3 },
-  { title: "Fuzzy Matching",      url: "/dashboard/fuzzy",          icon: GitCompare },
-  { title: "Anomaly Detection",   url: "/dashboard/anomalies",      icon: AlertTriangle },
-  { title: "Bank Reconciliation", url: "/dashboard/reconciliation", icon: Scale },
-  { title: "Risk Network",        url: "/dashboard/network",        icon: Share2 },
-  { title: "Final Conclusion",    url: "/dashboard/summary",        icon: FileCheck2 },
+const itemsConfig = [
+  { title: "Benford Analysis",    url: "/dashboard/benford",        icon: BarChart3, module: "benford" },
+  { title: "Fuzzy Matching",      url: "/dashboard/fuzzy",          icon: GitCompare, module: "fuzzy" },
+  { title: "Anomaly Detection",   url: "/dashboard/anomalies",      icon: AlertTriangle, module: "anomalies" },
+  { title: "Bank Reconciliation", url: "/dashboard/reconciliation", icon: Scale, module: "reconciliation" },
+  { title: "Risk Network",        url: "/dashboard/network",        icon: Share2, module: undefined },
+  { title: "Final Conclusion",    url: "/dashboard/summary",        icon: FileCheck2, module: undefined },
 ];
 
 const config = [
-  { title: "Settings",            url: "/dashboard/settings",       icon: SettingsIcon },
+  { title: "Settings",            url: "/dashboard/settings",       icon: SettingsIcon, module: undefined },
 ];
 
 export function AppSidebar() {
   const { pathname } = useLocation();
+  const { settings } = useSettings();
 
-  const renderItem = (item: { title: string; url: string; icon: any }) => {
+  const renderItem = (item: { title: string; url: string; icon: LucideIcon; module?: string }) => {
+    // Check if module is disabled
+    if (item.module && !settings.modules[item.module as keyof typeof settings.modules]) {
+      return null;
+    }
+
     const active = pathname === item.url;
     return (
       <li key={item.url}>
@@ -48,6 +55,8 @@ export function AppSidebar() {
     );
   };
 
+  const enabledItems = itemsConfig.filter((item) => !item.module || settings.modules[item.module as keyof typeof settings.modules]);
+
   return (
     <aside className="hidden md:flex w-[260px] shrink-0 flex-col bg-sidebar border-r border-sidebar-border">
       <div className="h-16 flex items-center px-5 border-b border-sidebar-border">
@@ -58,12 +67,12 @@ export function AppSidebar() {
         <p className="px-3 mb-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-sidebar-foreground/40">
           Analysis
         </p>
-        <ul className="space-y-0.5">{items.map(renderItem)}</ul>
+        <ul className="space-y-0.5">{itemsConfig.map(renderItem).filter(Boolean)}</ul>
 
         <p className="px-3 mt-7 mb-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-sidebar-foreground/40">
           Configuration
         </p>
-        <ul className="space-y-0.5">{config.map(renderItem)}</ul>
+        <ul className="space-y-0.5">{config.map(renderItem).filter(Boolean)}</ul>
       </nav>
 
       <div className="p-4 border-t border-sidebar-border">
