@@ -10,6 +10,7 @@ from benford_module import get_benford_analysis
 from outlier_module import detect_outliers
 from fuzzy_module import calculate_levenshtein, get_similarity_matrix
 from reconciliation_module import run_reconciliation
+from monte_carlo import run_monte_carlo_stress_test
 from map import preprocess_data, compute_benford_scores, compute_anomaly_scores, fuzzy_matching, compute_risk_scores, generate_graph
 
 app = FastAPI(title="LedgerSpy API", version="1.0.0")
@@ -691,6 +692,21 @@ def analysis_network():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Network analysis failed: {str(e)}")
+
+
+@app.get("/analysis/monte-carlo")
+def analysis_monte_carlo(iterations: int = Query(1000, ge=100, le=10000), months: int = Query(12, ge=1, le=36)):
+    """
+    Monte Carlo stress test for cash flow projection.
+    Returns 12-month projection with percentile bands (5th, 25th, 50th, 75th, 95th).
+    """
+    df = require_ledger()
+    
+    try:
+        result = run_monte_carlo_stress_test(df, iterations=iterations, months=months)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Monte Carlo analysis failed: {str(e)}")
 
 
 @app.get("/health")
