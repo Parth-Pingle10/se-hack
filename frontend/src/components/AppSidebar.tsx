@@ -9,8 +9,8 @@ const itemsConfig = [
   { title: "Fuzzy Matching",      url: "/dashboard/fuzzy",          icon: GitCompare, module: "fuzzy" },
   { title: "Anomaly Detection",   url: "/dashboard/anomalies",      icon: AlertTriangle, module: "anomalies" },
   { title: "Bank Reconciliation", url: "/dashboard/reconciliation", icon: Scale, module: "reconciliation" },
-  { title: "Risk Network",        url: "/dashboard/network",        icon: Share2, module: undefined },
-  { title: "Monte Carlo",         url: "/dashboard/monte-carlo",    icon: TrendingUp, module: undefined },
+  { title: "Risk Network",        url: "/dashboard/network",        icon: Share2, module: "riskNetwork" },
+  { title: "Monte Carlo",         url: "/dashboard/monte-carlo",    icon: TrendingUp, module: "monteCarlo" },
   { title: "Final Conclusion",    url: "/dashboard/summary",        icon: FileCheck2, module: undefined },
 ];
 
@@ -59,7 +59,7 @@ export function AppSidebar() {
   const enabledItems = itemsConfig.filter((item) => !item.module || settings.modules[item.module as keyof typeof settings.modules]);
 
   return (
-    <aside className="hidden md:flex w-[260px] shrink-0 flex-col bg-sidebar border-r border-sidebar-border">
+    <aside className="hidden md:flex w-[260px] shrink-0 flex-col bg-sidebar border-r border-sidebar-border sticky top-0 h-screen">
       <div className="h-16 flex items-center px-5 border-b border-sidebar-border">
         <Logo variant="light" size="md" />
       </div>

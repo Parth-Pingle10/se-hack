@@ -267,7 +267,7 @@
 
 @layer components {
   .table-premium thead {
-    @apply bg-muted/50;
+    @apply bg-muted;
   }
   .table-premium thead th {
     @apply font-semibold px-5 py-3.5 text-xs uppercase tracking-wider text-muted-foreground border-b-2 border-border;

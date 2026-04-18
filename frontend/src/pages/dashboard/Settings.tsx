@@ -117,6 +117,8 @@ export default function Settings() {
           <ToggleRow label="Fuzzy Matching"        checked={draft.modules.fuzzy}          onChange={(v) => setModule("fuzzy", v)} />
           <ToggleRow label="Anomaly Detection"     checked={draft.modules.anomalies}      onChange={(v) => setModule("anomalies", v)} />
           <ToggleRow label="Reconciliation Checks" checked={draft.modules.reconciliation} onChange={(v) => setModule("reconciliation", v)} />
+          <ToggleRow label="Risk Network"          checked={draft.modules.riskNetwork}    onChange={(v) => setModule("riskNetwork", v)} />
+          <ToggleRow label="Monte Carlo Simulation" checked={draft.modules.monteCarlo}   onChange={(v) => setModule("monteCarlo", v)} />
         </div>
       </Section>
 

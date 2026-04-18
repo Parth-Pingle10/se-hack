@@ -146,7 +146,7 @@ export default function Fuzzy() {
 
         <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
           <table className="w-full text-sm table-premium">
-            <thead className="sticky top-0 bg-card z-10">
+            <thead className="sticky top-0 bg-muted z-10">
               <tr className="text-left">
                 <th>Vendor A</th>
                 <th>Vendor B</th>

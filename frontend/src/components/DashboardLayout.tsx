@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import { Button } from "@/components/ui/button";
+import { useSettings } from "@/lib/settings";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -23,6 +24,17 @@ export default function DashboardLayout() {
   const navigate = useNavigate();
   const meta = titles[pathname] ?? { title: "Dashboard", subtitle: "" };
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const { settings } = useSettings();
+
+  // Redirect away from disabled module pages
+  useEffect(() => {
+    if (pathname === "/dashboard/network" && !settings.modules.riskNetwork) {
+      navigate("/dashboard/benford", { replace: true });
+    }
+    if (pathname === "/dashboard/monte-carlo" && !settings.modules.monteCarlo) {
+      navigate("/dashboard/benford", { replace: true });
+    }
+  }, [pathname, settings.modules.riskNetwork, settings.modules.monteCarlo, navigate]);
 
   const startNewAnalysis = () => {
     // Reset uploaded session data; preserve user-saved settings.

@@ -215,7 +215,7 @@ export default function Reconciliation() {
 
         <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
           <table className="w-full text-sm table-premium">
-            <thead className="sticky top-0 bg-card z-10">
+            <thead className="sticky top-0 bg-muted z-10">
               <tr className="text-left">
                 <th className="w-28">Date</th>
                 <th>Ledger / Vendor</th>
