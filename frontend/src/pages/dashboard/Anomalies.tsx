@@ -231,22 +231,35 @@ export default function Anomalies() {
                 </div>
 
                 <div className={cn(
-                  "rounded-xl border p-4",
+                  "rounded-xl border p-4 space-y-3",
                   selected.risk >= 0.75
                     ? "border-destructive/20 bg-destructive/5"
                     : selected.risk >= 0.45
                       ? "border-warning/20 bg-warning-soft/30"
                       : "border-success/20 bg-success-soft/30"
                 )}>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Why Flagged</p>
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Why Flagged</p>
+                    <span className="text-[9px] text-muted-foreground/60 uppercase tracking-wide font-medium">Rule-based analysis</span>
+                  </div>
                   <p className="text-sm text-foreground leading-relaxed">
-                    {selected.risk >= 0.75
-                      ? "Transaction amount is statistically extreme for this dataset. Immediate review recommended."
-                      : selected.risk >= 0.45
-                        ? "Moderate deviation from expected transaction patterns detected."
-                        : "Minor statistical deviation — within acceptable range but worth monitoring."}
-                    {(selected.hour < 6 || selected.hour > 22) && " Additionally, this transaction occurred outside normal business hours."}
+                    {selected.reason || "Flagged as a statistical outlier by the Isolation Forest model."}
                   </p>
+                  {/* Factor breakdown pills */}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {selected.reason?.split("; ").map((factor, i) => (
+                      <span key={i} className={cn(
+                        "text-[10px] font-semibold px-2 py-0.5 rounded-full border",
+                        selected.risk >= 0.75
+                          ? "bg-destructive/10 border-destructive/20 text-destructive"
+                          : selected.risk >= 0.45
+                            ? "bg-warning/10 border-warning/20 text-warning"
+                            : "bg-success/10 border-success/20 text-success"
+                      )}>
+                        {factor}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </div>
             </>

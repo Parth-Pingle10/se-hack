@@ -98,7 +98,7 @@ export function AiInsightBlock({
       )}
 
       {(streaming || (hasContent && expanded)) && (
-        <div className="px-5 py-4 text-sm text-foreground leading-relaxed whitespace-pre-wrap font-mono bg-muted/10 max-h-72 overflow-y-auto">
+        <div className="px-5 py-4 text-sm text-foreground leading-relaxed whitespace-pre-wrap font-sans bg-muted/10 max-h-72 overflow-y-auto">
           {text}
           {streaming && (
             <span className="inline-block w-2 h-4 bg-accent ml-0.5 animate-pulse align-middle" />

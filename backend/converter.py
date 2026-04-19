@@ -14,15 +14,15 @@ def process_file(file_path, output_path="data.csv"):
                 if os.path.exists(output_path):
                     os.remove(output_path)
                 os.rename(file_path, output_path)
-            print(f"{file_path} → {output_path}")
+            print(f"{file_path} -> {output_path}")
 
-        # 2. Excel → output_path
+        # 2. Excel -> output_path
         elif ext in [".xls", ".xlsx"]:
             df = pd.read_excel(file_path)
             df.to_csv(output_path, index=False)
-            print(f"{file_path} → {output_path}")
+            print(f"{file_path} -> {output_path}")
 
-        # 3. PDF → extract tables → output_path
+        # 3. PDF -> extract tables -> output_path
         elif ext == ".pdf":
             all_tables = []
 
@@ -36,11 +36,11 @@ def process_file(file_path, output_path="data.csv"):
             if all_tables:
                 combined_df = pd.concat(all_tables, ignore_index=True)
                 combined_df.to_csv(output_path, index=False)
-                print(f"{file_path} → {output_path}")
+                print(f"{file_path} -> {output_path}")
             else:
                 raise ValueError(f"No tables found in PDF {file_path}")
 
-        # 4. DOC / DOCX → temp.pdf → output_path
+        # 4. DOC / DOCX -> temp.pdf -> output_path
         elif ext in [".doc", ".docx"]:
             pdf_file = output_path.replace(".csv", ".pdf")
 
@@ -49,7 +49,7 @@ def process_file(file_path, output_path="data.csv"):
                 os.remove(pdf_file)
 
             convert(file_path, pdf_file)
-            print(f"{file_path} → {pdf_file}")
+            print(f"{file_path} -> {pdf_file}")
 
             # now process the generated PDF
             process_file(pdf_file, output_path)

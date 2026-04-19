@@ -66,10 +66,6 @@ export default function DashboardLayout() {
             <p className="text-[11px] text-muted-foreground truncate mt-0.5 font-normal">{meta.subtitle}</p>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5 rounded-md text-xs h-8 px-3 font-medium">
-              <Download className="h-3.5 w-3.5" />
-              Export
-            </Button>
             <Button size="sm" onClick={() => setConfirmOpen(true)} className="gap-1.5 rounded-md text-xs h-8 px-3 font-medium shadow-none">
               <Plus className="h-3.5 w-3.5" />
               New Analysis

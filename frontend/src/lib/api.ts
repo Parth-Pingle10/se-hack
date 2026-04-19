@@ -1,7 +1,7 @@
 // LedgerSpy — FastAPI client
 // All endpoints live at http://localhost:8000
 
-const BASE = "http://localhost:8000";
+const BASE = "http://localhost:9999";
 
 async function request<T>(path: string, opts?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, opts);
@@ -70,6 +70,8 @@ export interface AnomalyRecord {
   category: string;
   employee: string;
   transaction_id: string;
+  df_index?: number;
+  reason?: string;
 }
 
 export interface ScatterPoint {
@@ -90,6 +92,18 @@ export interface AnomalyResult {
 
 export async function fetchAnomalies(contamination = 0.05): Promise<AnomalyResult> {
   return request<AnomalyResult>(`/analysis/anomalies?contamination=${contamination}`);
+}
+
+export interface AnomalyExplanation {
+  base_value?: number | null;
+  model_score?: number | null;
+  is_outlier: boolean;
+  contributions: { feature: string; value: number; contribution: number }[];
+  fallback_reasons?: string[];
+}
+
+export async function fetchAnomalyExplanation(index: number, contamination = 0.05): Promise<AnomalyExplanation> {
+  return request<AnomalyExplanation>(`/analysis/anomaly-explain?index=${index}&contamination=${contamination}`);
 }
 
 // ─── Fuzzy ────────────────────────────────────────────────────────────────────

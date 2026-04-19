@@ -29,7 +29,6 @@ from memo_generator import (
 )
 from map import preprocess_data, compute_benford_scores, compute_anomaly_scores, fuzzy_matching, compute_risk_scores, generate_graph
 from converter import process_file
-from benchmark_engiene import BenchmarkEngine
 
 app = FastAPI(title="LedgerSpy API", version="1.0.0")
 
@@ -116,18 +115,14 @@ async def upload_ledger(file: UploadFile = File(...)):
     # Normalise column names
     df.columns = [c.strip() for c in df.columns]
     
-    # Check for amount columns (flexible - accepts common variations)
-    incoming_variations = ["IncomingAmount", "Incoming", "In", "Debit", "Dr", "Deposit"]
-    outgoing_variations = ["OutgoingAmount", "Outgoing", "Out", "Credit", "Cr", "Withdrawal"]
-    amount_variations = ["Amount", "Value", "Total", "Sum", "Balance"]
-    
-    has_incoming_outgoing = any(col in df.columns for col in incoming_variations) and any(col in df.columns for col in outgoing_variations)
-    has_amount = any(col in df.columns for col in amount_variations)
+    # Check for new schema first (IncomingAmount/OutgoingAmount), then old schema (Amount)
+    has_incoming_outgoing = "IncomingAmount" in df.columns and "OutgoingAmount" in df.columns
+    has_amount = "Amount" in df.columns
     
     if not (has_incoming_outgoing or has_amount):
         raise HTTPException(
             status_code=422,
-            detail="Ledger must have either an amount column (Amount, Value, Total, Sum, Balance) or both transaction columns (Incoming/Outgoing, Debit/Credit variations)"
+            detail="Ledger must have either 'Amount' column or both 'IncomingAmount' and 'OutgoingAmount' columns"
         )
     
     # Check for vendor/counterparty column
@@ -155,21 +150,13 @@ async def upload_ledger(file: UploadFile = File(...)):
     vendor_col = "CounterpartyName" if has_counterparty else "VendorName"
     df = df.rename(columns={vendor_col: "VendorName"})
     
-    # Create unified Amount column
+    # Create unified Amount column if using new schema
     if has_incoming_outgoing:
-        # Find the actual incoming and outgoing column names
-        incoming_col = next((col for col in incoming_variations if col in df.columns), None)
-        outgoing_col = next((col for col in outgoing_variations if col in df.columns), None)
-        
-        if incoming_col and outgoing_col:
-            df["IncomingAmount"] = pd.to_numeric(df[incoming_col], errors="coerce").fillna(0)
-            df["OutgoingAmount"] = pd.to_numeric(df[outgoing_col], errors="coerce").fillna(0)
-            df["Amount"] = df["IncomingAmount"] - df["OutgoingAmount"]
+        df["IncomingAmount"] = pd.to_numeric(df["IncomingAmount"], errors="coerce").fillna(0)
+        df["OutgoingAmount"] = pd.to_numeric(df["OutgoingAmount"], errors="coerce").fillna(0)
+        df["Amount"] = df["IncomingAmount"] - df["OutgoingAmount"]
     else:
-        # Find the actual amount column name
-        amount_col = next((col for col in amount_variations if col in df.columns), None)
-        if amount_col:
-            df["Amount"] = pd.to_numeric(df[amount_col], errors="coerce")
+        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
     
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df.dropna(subset=["Amount", "VendorName"])
@@ -380,8 +367,92 @@ def _analysis_anomalies_impl(contamination: float):
         r = min(1.0, (z / 6) + hr_penalty)
         return round(r, 3)
 
+    # ── SHAP feature attribution ───────────────────────────────────────────────
+    features = ["Amount", "Hour"]
+    X_all = detected[features].fillna(0)
+
+    # Re-fit model on same data (same seed as outlier_module)
+    from sklearn.ensemble import IsolationForest as _IF
+    import shap as _shap
+    _model = _IF(contamination=contamination, random_state=42).fit(X_all)
+
+    # TreeExplainer is fast and exact for tree-based models
+    try:
+        _explainer = _shap.TreeExplainer(_model)
+        _shap_vals = _explainer.shap_values(X_all)   # shape (n, 2)
+    except Exception:
+        _shap_vals = None
+
+    def _shap_reason(row_idx: int, row) -> str:
+        """Build a specific, feature-named reason string using SHAP contributions."""
+        amt   = float(row["Amount"])
+        hr    = int(row["Hour"])
+        z_amt = abs((amt - mean_amt) / (std_amt or 1))
+
+        # ------ Use SHAP if available ------
+        if _shap_vals is not None:
+            sv = _shap_vals[row_idx]          # [shap_Amount, shap_Hour]
+            contributions = {
+                "Transaction Amount": sv[0],
+                "Activity Hour":      sv[1],
+            }
+            # Most-negative SHAP = biggest driver toward anomaly
+            primary_feat = min(contributions, key=contributions.get)
+            primary_val  = contributions[primary_feat]
+            secondary    = [k for k in contributions if k != primary_feat]
+
+            parts = []
+
+            # Primary driver — feature-specific detail
+            if primary_feat == "Transaction Amount":
+                parts.append(
+                    f"Primary driver: Transaction Amount "
+                    f"(SHAP {primary_val:+.3f}) — "
+                    f"₹{amt:,.0f} is {z_amt:.1f}σ from the dataset mean"
+                )
+            else:
+                label = "late night/early morning" if hr < 6 else "after 10 PM" if hr > 22 else f"{hr:02d}:00"
+                parts.append(
+                    f"Primary driver: Activity Hour "
+                    f"(SHAP {primary_val:+.3f}) — "
+                    f"transaction at {hr:02d}:00 ({label})"
+                )
+
+            # Secondary driver if also significantly negative
+            for sec in secondary:
+                sec_val = contributions[sec]
+                if sec_val < -0.05:
+                    if sec == "Transaction Amount":
+                        parts.append(f"Secondary: Amount (SHAP {sec_val:+.3f}) — ₹{amt:,.0f}")
+                    else:
+                        parts.append(f"Secondary: Activity Hour (SHAP {sec_val:+.3f}) — {hr:02d}:00")
+
+            # Extra qualitative context
+            if amt > mean_amt * 5:
+                parts.append("Amount exceeds 5× dataset average (possible inflated invoice)")
+            elif amt < mean_amt * 0.02 and amt > 0:
+                parts.append("Near-zero amount (possible ghost or test transaction)")
+
+            return "; ".join(parts) if parts else "Flagged as statistical outlier by Isolation Forest"
+
+        # ------ Fallback: pure rule-based ------
+        parts = []
+        if z_amt >= 3:
+            parts.append(f"Extreme Transaction Amount — ₹{amt:,.0f} ({z_amt:.1f}σ from mean)")
+        elif z_amt >= 1.5:
+            parts.append(f"Unusual Transaction Amount — ₹{amt:,.0f} ({z_amt:.1f}σ from mean)")
+        if hr < 6 or hr > 22:
+            parts.append(f"Activity Hour {hr:02d}:00 outside business hours")
+        if not parts:
+            parts.append("Flagged as statistical outlier by Isolation Forest")
+        return "; ".join(parts)
+
+    # Map detected index → shap row index
+    detected_idx_list = list(detected.index)
+
     records = []
-    for i, (_, row) in enumerate(outliers.iterrows(), start=1):
+    for i, (idx, row) in enumerate(outliers.iterrows(), start=1):
+        shap_row_idx = detected_idx_list.index(idx) if idx in detected_idx_list else 0
         records.append({
             "id": i,
             "date": str(row.get("Date", ""))[:10] if pd.notna(row.get("Date", None)) else "",
@@ -392,6 +463,7 @@ def _analysis_anomalies_impl(contamination: float):
             "category": str(row.get("Category", "")),
             "employee": str(row.get("EmployeeID", "")),
             "transaction_id": str(row.get("TransactionID", str(i))),
+            "reason": _shap_reason(shap_row_idx, row),
         })
 
     # Amount histogram (log buckets)
@@ -770,30 +842,6 @@ def analysis_network():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Network analysis failed: {str(e)}")
-
-
-@app.get("/analysis/benchmark")
-def analysis_benchmark(client_value: float = Query(..., description="The client's metric to benchmark"), sector: str = Query("Technology", description="Industry sector")):
-    """
-    Industry Benchmarking against peer values.
-    Returns statistical quartiles and classification.
-    """
-    # Mock data representing anomaly or error rates across industry peers
-    mock_data = {
-        "Technology": [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 8.0, 10.0],
-        "Retail": [2.0, 3.0, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0, 10.0, 12.0, 15.0],
-        "Healthcare": [0.5, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0],
-        "Financial Services": [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0],
-        "Manufacturing": [1.5, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 8.0, 10.0, 12.0]
-    }
-    
-    peer_values = mock_data.get(sector, mock_data["Technology"])
-    
-    try:
-        engine = BenchmarkEngine(peer_values)
-        return engine.analyze(client_value)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Benchmarking analysis failed: {str(e)}")
 
 
 @app.get("/analysis/monte-carlo")
@@ -1203,7 +1251,9 @@ def chat_endpoint(body: dict = Body(...)):
     prompt = (
         "You are a helpful AI audit assistant for the LedgerSpy platform. "
         "Answer questions about audit findings, fraud risks, and uploaded financial data. "
-        "Use ₹ for currency. Be precise, professional, and concise.\n"
+        "Use ₹ for currency. Be precise, professional, and concise. "
+        "STRICTLY DO NOT use Markdown formatting (like **, *, #, _). "
+        "Always use Title Case or sentence case (Abc format). Never use ALL CAPS (ABC format).\n"
         f"{data_ctx}\n"
         f"Conversation so far:\n{history_txt}\n"
         f"User: {message}\n\nAssistant:"
