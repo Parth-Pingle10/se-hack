@@ -1,22 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { EditorContent, useEditor, type Editor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { Separator } from "@/components/ui/separator";
-import { InsightCard } from "@/components/InsightCard";
-import { GlobalInsightPanel } from "@/components/GlobalInsightPanel";
+import { Chatbot } from "@/components/Chatbot";
 import {
   FileText, Copy, Download, CheckCircle2, AlertTriangle, Eye, Loader2, Save, AlertCircle, Lightbulb,
-  Bold, Italic, List, ListOrdered, Heading1, Heading2, type LucideIcon,
+  Bold, Italic, List, ListOrdered, Heading1, Heading2, BrainCircuit, type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
-import { 
-  generateAuditMemo, 
-  fetchBenford, 
-  fetchAnomalies, 
-  fetchFuzzy, 
+import {
+  streamSectionAnalysis,
+  streamGenerateAuditMemo,
+  fetchBenford,
+  fetchAnomalies,
+  fetchFuzzy,
   fetchReconciliation,
   fetchMonteCarlo,
   type BenfordResult,
@@ -26,84 +26,53 @@ import {
   type MonteCarloResult,
 } from "@/lib/api";
 
-const MEMO_KEY = "ledgerspy:session:memo";
+const MEMO_KEY     = "ledgerspy:session:memo";
 const INSIGHTS_KEY = "ledgerspy:session:insights";
 
-// Extract structured insights from Ollama-generated markdown memo
-function extractInsightsFromMemo(markdown: string): {
-  summary: string[];
-  findings: string[];
-  risks: string[];
-  recommendations: string[];
-} {
-  const sections = {
-    summary: [] as string[],
-    findings: [] as string[],
-    risks: [] as string[],
-    recommendations: [] as string[],
-  };
-
-  // Split by headers
-  const parts = markdown.split(/^##\s+/m);
-  
-  parts.forEach((part) => {
-    const lines = part.split('\n').filter(l => l.trim());
-    if (lines.length === 0) return;
-    
-    const header = lines[0].toLowerCase();
-    const content = lines.slice(1).filter(l => l.trim() && !l.startsWith('-'));
-    
-    if (header.includes('summary') || header.includes('procedures')) {
-      sections.summary = content.slice(0, 3);
-    } else if (header.includes('finding')) {
-      sections.findings = content
-        .filter(l => l.startsWith('-') || l.startsWith('•'))
-        .map(l => l.replace(/^[-•]\s*/, ''))
-        .slice(0, 5);
-    } else if (header.includes('risk') || header.includes('highlight')) {
-      sections.risks = content
-        .filter(l => l.startsWith('-') || l.startsWith('•'))
-        .map(l => l.replace(/^[-•]\s*/, ''))
-        .slice(0, 5);
-    } else if (header.includes('recommendation')) {
-      sections.recommendations = content
-        .filter(l => l.startsWith('-') || l.startsWith('•'))
-        .map(l => l.replace(/^[-•]\s*/, ''))
-        .slice(0, 3);
-    }
-  });
-
-  return sections;
+// Analysis data states (Ollama via POST /analysis/section)
+interface AiSections {
+  findings:     string[];
+  risks:        string[];
+  observations: string[];
+  /** Final executive conclusion paragraph from the "conclusion" section */
+  conclusion:   string;
 }
-function markdownToHtml(markdown: string): string {
-  let html = markdown
-    // Escape existing HTML
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    // Headers
-    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
-    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
-    // Bold
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    // Italic
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    // Unordered lists
-    .replace(/^\- (.+)$/gm, "<li>$1</li>")
-    // Line breaks
-    .replace(/\n\n/g, "</p><p>")
-    .replace(/\n/g, "<br>");
 
-  // Wrap paragraphs
-  if (!html.startsWith("<h")) {
-    html = `<p>${html}</p>`;
-  }
+type SectionStreamBuf = {
+  findings: string;
+  risks: string;
+  observations: string;
+  conclusion: string;
+};
 
-  // Fix paragraph wrapping
-  html = html.replace(/(<h[12]>)/g, "</p>$1").replace(/(<\/h[12]>)/g, "$1<p>");
-  html = html.replace(/<p><\/p>/g, "");
+const EMPTY_SECTION_STREAM: SectionStreamBuf = {
+  findings: "",
+  risks: "",
+  observations: "",
+  conclusion: "",
+};
 
-  return html;
+function parseSectionBullets(raw: string): string[] {
+  const t = raw.trim();
+  if (!t || /\[Error:/i.test(t)) return [];
+  const bullets = t
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => /^[-•*]/.test(line))
+    .map((line) => line.replace(/^[-•*]\s*/, "").trim())
+    .filter(Boolean);
+  if (bullets.length) return bullets;
+  return [t];
+}
+
+
+/** Plain-text audit memo → safe HTML for TipTap (backend uses plain text, not Markdown). */
+function plainTextMemoToHtml(text: string): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const t = text.replace(/\r\n/g, "\n").trim();
+  if (!t) return "<p><em>(Empty memo)</em></p>";
+  return `<div class="memo-plaintext whitespace-pre-wrap text-sm leading-relaxed">${esc(t)}</div>`;
 }
 
 const memoHtml = `
@@ -200,22 +169,20 @@ export default function Summary() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
-  const [generatingInsights, setGeneratingInsights] = useState(false);
-  
-  // Analysis data states
-  const [benford, setBenford] = useState<BenfordResult | null>(null);
-  const [anomalies, setAnomalies] = useState<AnomalyResult | null>(null);
-  const [fuzzy, setFuzzy] = useState<FuzzyResult | null>(null);
-  const [recon, setRecon] = useState<ReconResult | null>(null);
+  // Analysis data
+  const [benford,    setBenford]    = useState<BenfordResult    | null>(null);
+  const [anomalies,  setAnomalies]  = useState<AnomalyResult    | null>(null);
+  const [fuzzy,      setFuzzy]      = useState<FuzzyResult      | null>(null);
+  const [recon,      setRecon]      = useState<ReconResult      | null>(null);
   const [monteCarlo, setMonteCarlo] = useState<MonteCarloResult | null>(null);
-  
-  // LLM-generated insights
-  const [llmInsights, setLlmInsights] = useState<{
-    summary: string[];
-    findings: string[];
-    risks: string[];
-    recommendations: string[];
-  } | null>(null);
+
+  // LLM-generated section bullets
+  const [aiSections,       setAiSections]       = useState<AiSections | null>(null);
+  const [sectionsLoading,  setSectionsLoading]  = useState(false);
+  const [sectionsError,    setSectionsError]    = useState<string | null>(null);
+  const sectionBuffersRef = useRef<SectionStreamBuf>({ ...EMPTY_SECTION_STREAM });
+  const [sectionStreamPreview, setSectionStreamPreview] = useState<SectionStreamBuf>({ ...EMPTY_SECTION_STREAM });
+  const [memoStreamText, setMemoStreamText] = useState("");
 
   useEffect(() => {
     if (typeof window !== "undefined" && localStorage.getItem(MEMO_KEY)) {
@@ -223,13 +190,16 @@ export default function Summary() {
       const savedInsights = localStorage.getItem(INSIGHTS_KEY);
       if (savedInsights) {
         try {
-          setLlmInsights(JSON.parse(savedInsights));
-        } catch {
-          // Ignore parse errors
-        }
+          const parsed = JSON.parse(savedInsights) as Partial<AiSections>;
+          setAiSections({
+            findings:     Array.isArray(parsed.findings)     ? parsed.findings     : [],
+            risks:        Array.isArray(parsed.risks)        ? parsed.risks        : [],
+            observations: Array.isArray(parsed.observations) ? parsed.observations : [],
+            conclusion:   typeof parsed.conclusion === "string" ? parsed.conclusion : "",
+          });
+        } catch { /* ignore */ }
       }
     }
-    // Fetch all analysis data on mount
     loadAnalysisData();
   }, []);
 
@@ -237,18 +207,19 @@ export default function Summary() {
     setDataLoading(true);
     try {
       const [benfordData, anomalyData, fuzzyData, reconData, mcData] = await Promise.all([
-        fetchBenford().catch(() => null),
+        fetchBenford().catch(()   => null),
         fetchAnomalies().catch(() => null),
-        fetchFuzzy().catch(() => null),
+        fetchFuzzy().catch(()     => null),
         fetchReconciliation().catch(() => null),
         fetchMonteCarlo().catch(() => null),
       ]);
-      
       setBenford(benfordData);
       setAnomalies(anomalyData);
       setFuzzy(fuzzyData);
       setRecon(reconData);
       setMonteCarlo(mcData);
+      // Auto-generate AI sections once data is available
+      generateAiSections(benfordData, anomalyData, fuzzyData, reconData, mcData);
     } catch (err) {
       console.error("Failed to load analysis data:", err);
     } finally {
@@ -256,142 +227,124 @@ export default function Summary() {
     }
   };
 
-  // Generate dynamic insights based on fetched data
-  const generateInsights = (): string[] => {
-    const insights: string[] = [];
-    
-    if (anomalies && anomalies.total_flagged > 0) {
-      const pct = ((anomalies.total_flagged / anomalies.total_records) * 100).toFixed(1);
-      insights.push(`${anomalies.total_flagged} anomalous transactions detected (${pct}% of ledger)`);
-    }
-    
-    if (fuzzy && fuzzy.flagged_pairs > 0) {
-      insights.push(`${fuzzy.flagged_pairs} vendor name similarity matches flagged (potential duplicates)`);
-    }
-    
-    if (recon) {
-      const matchPct = ((recon.matched / recon.total) * 100).toFixed(1);
-      insights.push(`Bank reconciliation: ${matchPct}% matched, ${recon.unmatched} unmatched items`);
-    }
-    
-    if (benford && benford.significant_digits.length > 0) {
-      insights.push(`Benford's Law: ${benford.significant_digits.length} digits deviate significantly`);
-    }
-    
-    if (monteCarlo && monteCarlo.survival_rate < 95) {
-      insights.push(`Cash flow projection: ${(monteCarlo.survival_rate).toFixed(1)}% survival rate over ${monteCarlo.chart_data.length} months`);
-    }
-    
-    return insights.length > 0 ? insights : ["Analyzing audit data..."];
-  };
+  // Token-stream /analysis/section/stream for each panel (parallel; feels responsive)
+  const generateAiSections = useCallback(async (
+    b: BenfordResult | null,
+    a: AnomalyResult | null,
+    f: FuzzyResult   | null,
+    r: ReconResult   | null,
+    mc: MonteCarloResult | null,
+  ) => {
+    setSectionsLoading(true);
+    setSectionsError(null);
+    sectionBuffersRef.current = { ...EMPTY_SECTION_STREAM };
+    setSectionStreamPreview({ ...EMPTY_SECTION_STREAM });
+    const payloads = [b, a, f, r, mc] as const;
 
-  // Generate dynamic findings from data
-  const generateFindings = (): string[] => {
-    const findings: string[] = [];
-    
-    if (benford) {
-      const score = benford.benford_score;
-      findings.push(`Benford's Law risk score: ${score}/100 (${benford.band} band)`);
-      if (benford.significant_digits.length > 0) {
-        const digits = benford.significant_digits.slice(0, 3).map(d => d.digit).join(", ");
-        findings.push(`Significant deviations detected in digits: ${digits}`);
-      }
-    }
-    
-    if (fuzzy && fuzzy.flagged_pairs > 0) {
-      findings.push(`${fuzzy.flagged_pairs} vendor pair(s) with similarity > 0.70 identified`);
-      if (fuzzy.vendor_clusters.length > 0) {
-        findings.push(`${fuzzy.vendor_clusters.length} vendor cluster(s) suggest potential master data issues`);
-      }
-    }
-    
-    if (anomalies && anomalies.anomalies.length > 0) {
-      const topAnomaly = anomalies.anomalies[0];
-      findings.push(`Highest anomaly risk: ${topAnomaly.vendor} on ${topAnomaly.date} ($${topAnomaly.amount.toFixed(2)})`);
-    }
-    
-    return findings.length > 0 ? findings : ["Analyzing findings..."];
-  };
+    const runStream = (section: keyof SectionStreamBuf, apiSection: "findings" | "risks" | "observations" | "conclusion") =>
+      new Promise<void>((resolve, reject) => {
+        streamSectionAnalysis(
+          apiSection,
+          ...payloads,
+          (chunk) => {
+            sectionBuffersRef.current[section] += chunk;
+            setSectionStreamPreview({ ...sectionBuffersRef.current });
+          },
+          () => resolve(),
+          (err) => reject(new Error(err)),
+        );
+      });
 
-  // Generate dynamic risks from data
-  const generateRisks = (): string[] => {
-    const risks: string[] = [];
-    
-    if (anomalies && anomalies.anomalies.length > 0) {
-      const highRiskCount = anomalies.anomalies.filter(a => a.risk > 0.7).length;
-      if (highRiskCount > 0) {
-        risks.push(`${highRiskCount} transaction(s) classified as high-risk (risk > 0.7)`);
-      }
-      const topAmounts = anomalies.anomalies
-        .sort((a, b) => b.amount - a.amount)
-        .slice(0, 2)
-        .map(a => `$${a.amount.toFixed(2)} to ${a.vendor}`)
-        .join("; ");
-      if (topAmounts) risks.push(`Highest exposure amounts: ${topAmounts}`);
-    }
-    
-    if (recon && recon.unmatched > 0) {
-      risks.push(`${recon.unmatched} unmatched reconciliation items requiring investigation`);
-    }
-    
-    if (benford && benford.benford_score > 60) {
-      risks.push(`Elevated Benford deviation pressure - possible digit manipulation patterns`);
-    }
-    
-    if (monteCarlo && monteCarlo.insolvency_risk > 10) {
-      risks.push(`Cash flow stress test indicates ${monteCarlo.insolvency_risk.toFixed(1)}% insolvency risk`);
-    }
-    
-    return risks.length > 0 ? risks : ["Analyzing risks..."];
-  };
+    try {
+      const settled = await Promise.allSettled([
+        runStream("findings", "findings"),
+        runStream("risks", "risks"),
+        runStream("observations", "observations"),
+        runStream("conclusion", "conclusion"),
+      ]);
 
-  // Generate dynamic observations from data
-  const generateObservations = (): string[] => {
-    const obs: string[] = [];
-    
-    if (recon) {
-      obs.push(`Overall ledger-to-bank alignment: ${((recon.matched / recon.total) * 100).toFixed(1)}% fully matched`);
+      const buf = sectionBuffersRef.current;
+      const sections: AiSections = {
+        findings:     parseSectionBullets(buf.findings),
+        risks:        parseSectionBullets(buf.risks),
+        observations: parseSectionBullets(buf.observations),
+        conclusion:   buf.conclusion.trim(),
+      };
+
+      const failMsg = (i: number) => {
+        const s = settled[i];
+        if (s.status === "rejected") {
+          return s.reason instanceof Error ? s.reason.message : String(s.reason);
+        }
+        return "";
+      };
+
+      const anyContent =
+        sections.findings.length ||
+        sections.risks.length ||
+        sections.observations.length ||
+        sections.conclusion.length;
+
+      if (!anyContent) {
+        setAiSections(null);
+        setSectionsError(
+          failMsg(0) || failMsg(1) || failMsg(2) || failMsg(3) || "Failed to generate AI insights",
+        );
+        return;
+      }
+
+      const partial = settled.some((s) => s.status === "rejected");
+      setSectionsError(
+        partial ? "One or more streams failed — ensure Ollama is running (try: ollama pull phi3:3.8b)." : null,
+      );
+
+      setAiSections(sections);
+      localStorage.setItem(INSIGHTS_KEY, JSON.stringify(sections));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to generate AI insights";
+      setSectionsError(msg);
+    } finally {
+      setSectionStreamPreview({ ...EMPTY_SECTION_STREAM });
+      setSectionsLoading(false);
     }
-    
-    if (fuzzy) {
-      obs.push(`Vendor master data quality: ${fuzzy.total_vendors} total vendors analyzed`);
-    }
-    
-    if (anomalies) {
-      const avgRisk = (anomalies.anomalies.reduce((s, a) => s + a.risk, 0) / anomalies.anomalies.length).toFixed(2);
-      obs.push(`Average transaction anomaly score: ${avgRisk} across ${anomalies.total_records} records`);
-    }
-    
-    obs.push(`Audit scope: Multiple forensic procedures including Benford, fuzzy matching, and reconciliation`);
-    
-    return obs.length > 0 ? obs : ["Analysis data available"];
-  };
+  }, []);
 
   const generate = async () => {
     setLoading(true);
-    setGeneratingInsights(true);
     setError(null);
+    setMemoStreamText("");
+    let full = "";
     try {
-      const result = await generateAuditMemo();
-      
-      // Extract insights from the memo
-      const insights = extractInsightsFromMemo(result.memo);
-      setLlmInsights(insights);
-      localStorage.setItem(INSIGHTS_KEY, JSON.stringify(insights));
-      
-      // Convert markdown to HTML for the editor
-      const html = markdownToHtml(result.memo);
-      localStorage.setItem(MEMO_KEY, html);
-      setGenerated(true);
-      toast.success("Audit memo generated successfully");
+      await streamGenerateAuditMemo(
+        (chunk) => {
+          full += chunk;
+          setMemoStreamText(full);
+        },
+        () => {
+          const t = full.trim();
+          if (!t) {
+            setError("Received an empty memo from the server.");
+            toast.error("Empty memo");
+            return;
+          }
+          const html = plainTextMemoToHtml(t);
+          localStorage.setItem(MEMO_KEY, html);
+          setGenerated(true);
+          toast.success("Audit memo streamed from Ollama");
+        },
+        (message) => {
+          setError(message);
+          toast.error(message);
+        },
+      );
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to generate memo";
       setError(message);
       toast.error(message);
       console.error("Error generating memo:", err);
     } finally {
+      setMemoStreamText("");
       setLoading(false);
-      setGeneratingInsights(false);
     }
   };
 
@@ -447,12 +400,91 @@ export default function Summary() {
             </div>
           </div> */}
 
-          {/* Findings sections */}
+          {/* Findings sections — AI-powered (Benford + anomalies + fuzzy + recon + MC context) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <Section icon={CheckCircle2} tone="text-success" title="Key Findings" items={generateFindings()} />
-            <Section icon={AlertTriangle} tone="text-warning" title="Risk Highlights" items={generateRisks()} />
-            <Section icon={Eye} tone="text-accent" title="Observations" items={generateObservations()} />
+            <Section
+              icon={CheckCircle2} tone="text-success" title="Key Findings"
+              items={aiSections?.findings ?? []}
+              loading={sectionsLoading}
+              streamText={sectionsLoading ? sectionStreamPreview.findings : undefined}
+              error={!sectionsLoading && !aiSections ? sectionsError : null}
+            />
+            <Section
+              icon={AlertTriangle} tone="text-warning" title="Risk Highlights"
+              items={aiSections?.risks ?? []}
+              loading={sectionsLoading}
+              streamText={sectionsLoading ? sectionStreamPreview.risks : undefined}
+              error={!sectionsLoading && !aiSections ? sectionsError : null}
+            />
+            <Section
+              icon={Eye} tone="text-accent" title="Observations"
+              items={aiSections?.observations ?? []}
+              loading={sectionsLoading}
+              streamText={sectionsLoading ? sectionStreamPreview.observations : undefined}
+              error={!sectionsLoading && !aiSections ? sectionsError : null}
+            />
           </div>
+
+          {/* Final conclusion — same analysis payload, dedicated Ollama prompt */}
+          <div className="card-elevated p-6">
+            <div className="flex items-center gap-2.5 mb-4">
+              <div className="h-8 w-8 rounded-lg flex items-center justify-center bg-accent-soft">
+                <Lightbulb className="h-4 w-4 text-accent" />
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-sm font-bold text-foreground">Executive conclusion</h3>
+                {sectionsLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+                {((!sectionsLoading && (aiSections?.conclusion?.length ?? 0) > 0) || (sectionsLoading && sectionStreamPreview.conclusion)) && (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent bg-accent/10 rounded-full px-2 py-0.5">
+                    <BrainCircuit className="h-2.5 w-2.5" /> Ollama stream
+                  </span>
+                )}
+              </div>
+            </div>
+            {sectionsLoading && sectionStreamPreview.conclusion ? (
+              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap border-l-2 border-accent/60 pl-3">
+                {sectionStreamPreview.conclusion}
+                <span className="inline-block w-1.5 h-4 ml-0.5 bg-accent/70 animate-pulse align-middle rounded-sm" aria-hidden />
+              </p>
+            ) : sectionsLoading ? (
+              <div className="space-y-3">
+                <div className="h-4 bg-muted rounded animate-pulse" />
+                <div className="h-4 bg-muted rounded animate-pulse w-5/6" />
+                <div className="h-4 bg-muted rounded animate-pulse w-4/5" />
+                <p className="text-[11px] text-muted-foreground">Streaming conclusion from Benford, anomaly, fuzzy, and reconciliation context…</p>
+              </div>
+            ) : !aiSections?.conclusion ? (
+              <p className="text-xs text-muted-foreground italic">
+                {sectionsError && !aiSections
+                  ? "Could not load conclusion."
+                  : "Upload ledger and bank data and open this page to generate the final conclusion."}
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                {aiSections.conclusion}
+              </p>
+            )}
+          </div>
+
+          {/* Retry / partial warning */}
+          {sectionsError && !sectionsLoading && (
+            <div
+              className={`flex items-center gap-3 p-4 rounded-xl border ${
+                aiSections ? "border-amber-500/25 bg-amber-500/5" : "border-destructive/20 bg-destructive/5"
+              }`}
+            >
+              <AlertCircle className={`h-4 w-4 shrink-0 ${aiSections ? "text-amber-600" : "text-destructive"}`} />
+              <p className={`text-sm flex-1 ${aiSections ? "text-amber-800 dark:text-amber-200" : "text-destructive"}`}>
+                {sectionsError}
+              </p>
+              <Button
+                variant="outline" size="sm"
+                onClick={() => generateAiSections(benford, anomalies, fuzzy, recon, monteCarlo)}
+              >
+                Retry AI analysis
+              </Button>
+            </div>
+          )}
         </>
       )}
 
@@ -480,9 +512,17 @@ export default function Summary() {
               <p className="text-sm font-medium text-destructive">Generation Failed</p>
               <p className="text-xs text-destructive/80 mt-1">{error}</p>
               <p className="text-xs text-muted-foreground mt-2">
-                Ensure Ollama is running with qwen2.5:3b model and all analyses are available.
+                Ensure Ollama is running at <code className="text-[10px]">http://localhost:11434</code> with{" "}
+                <code className="text-[10px]">phi3:3.8b</code> (default) or set <code className="text-[10px]">OLLAMA_MODEL</code>.
               </p>
             </div>
+          </div>
+        )}
+
+        {loading && memoStreamText && (
+          <div className="mt-4 rounded-xl border border-border bg-muted/20 p-4 max-h-[240px] overflow-auto">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-2">Live stream</p>
+            <pre className="text-xs text-foreground whitespace-pre-wrap font-sans leading-relaxed">{memoStreamText}</pre>
           </div>
         )}
 
@@ -699,8 +739,17 @@ function Toolbar({ editor }: { editor: Editor }) {
 }
 
 function Section({
-  icon: Icon, tone, title, items, loading = false,
-}: { icon: LucideIcon; tone: string; title: string; items: string[]; loading?: boolean }) {
+  icon: Icon, tone, title, items, loading = false, streamText, error = null,
+}: {
+  icon: LucideIcon;
+  tone: string;
+  title: string;
+  items: string[];
+  loading?: boolean;
+  /** Live token stream from Ollama while `loading` */
+  streamText?: string;
+  error?: string | null;
+}) {
   return (
     <div className="card-elevated p-6">
       <div className="flex items-center gap-2.5 mb-4">
@@ -711,14 +760,32 @@ function Section({
         }`}>
           <Icon className={`h-4 w-4 ${tone}`} />
         </div>
-        <h3 className="text-sm font-bold text-foreground">{title}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-bold text-foreground">{title}</h3>
+          {loading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+          {!loading && items.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-accent bg-accent/10 rounded-full px-2 py-0.5">
+              <BrainCircuit className="h-2.5 w-2.5" /> AI
+            </span>
+          )}
+        </div>
       </div>
-      {loading ? (
+      {loading && streamText ? (
+        <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap border-l-2 border-accent/50 pl-3 min-h-[4.5rem]">
+          {streamText}
+          <span className="inline-block w-1.5 h-3.5 ml-0.5 bg-accent/70 animate-pulse align-middle rounded-sm" aria-hidden />
+        </div>
+      ) : loading ? (
         <div className="space-y-3">
           <div className="h-4 bg-muted rounded animate-pulse" />
           <div className="h-4 bg-muted rounded animate-pulse" />
           <div className="h-4 bg-muted rounded animate-pulse w-4/5" />
+          <p className="text-[11px] text-muted-foreground">Connecting to Ollama…</p>
         </div>
+      ) : error ? (
+        <p className="text-xs text-destructive">{error}</p>
+      ) : items.length === 0 ? (
+        <p className="text-xs text-muted-foreground italic">Upload data to generate AI analysis.</p>
       ) : (
         <ul className="space-y-3">
           {items.map((t, i) => (
@@ -732,3 +799,7 @@ function Section({
     </div>
   );
 }
+
+// ─── Chatbot wired into Summary page ─────────────────────────────────────────
+// (Also mounted globally in DashboardLayout — this is a backup reference)
+export { Chatbot };

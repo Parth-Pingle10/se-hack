@@ -8,6 +8,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Download, Plus } from "lucide-react";
+import { Chatbot } from "@/components/Chatbot";
 
 const titles: Record<string, { title: string; subtitle: string }> = {
   "/dashboard/benford":        { title: "Benford Analysis",       subtitle: "Distribution of leading digits across the ledger" },
@@ -97,6 +98,9 @@ export default function DashboardLayout() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* AI Audit Chatbot — persistent across all dashboard pages */}
+      <Chatbot />
     </div>
   );
 }

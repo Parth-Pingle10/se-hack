@@ -1,17 +1,30 @@
 import io
+import json
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, File, UploadFile, HTTPException, Query
+from fastapi import FastAPI, File, UploadFile, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Optional
 
+from llm import llm
+from langchain_core.messages import HumanMessage
 from benford_module import get_benford_analysis
 from outlier_module import detect_outliers
 from fuzzy_module import calculate_levenshtein, get_similarity_matrix
 from reconciliation_module import run_reconciliation
 from monte_carlo import run_monte_carlo_stress_test
-from memo_generator import generate_audit_memo
+from memo_generator import (
+    generate_audit_memo,
+    generate_benford_insight,
+    generate_anomaly_insight,
+    generate_fuzzy_insight,
+    generate_reconciliation_insight,
+    generate_section,
+    iter_section_stream,
+    iter_audit_memo_stream,
+    _fmt_benford, _fmt_anomaly, _fmt_fuzzy, _fmt_recon,
+)
 from map import preprocess_data, compute_benford_scores, compute_anomaly_scores, fuzzy_matching, compute_risk_scores, generate_graph
 
 app = FastAPI(title="LedgerSpy API", version="1.0.0")
@@ -713,55 +726,412 @@ def analysis_monte_carlo(iterations: int = Query(1000, ge=100, le=10000), months
 @app.get("/analysis/generate-memo")
 def analysis_generate_memo():
     """
-    Generate comprehensive audit memo using LLM (Ollama).
-    Combines Benford, Anomaly, Fuzzy, Reconciliation, and Monte Carlo analyses.
-    Requires: ledger file uploaded, all analyses available.
+    Build Benford, anomaly, fuzzy, reconciliation, and Monte Carlo outputs from the
+    uploaded ledger and bank data, then generate a full audit memo with the local
+    Ollama model (see backend/llm.py). Falls back to a deterministic template if the LLM fails.
     """
-    df = require_ledger()
-    require_bank()  # Ensure bank data is available for reconciliation
-    
+    require_ledger()
+    require_bank()
+
+    benford_d = analysis_benford()
+    anomaly_d = analysis_anomalies()
+    fuzzy_d = analysis_fuzzy()
+    recon_d = analysis_reconciliation()
+
+    mc_d = None
     try:
-        # Collect all analysis data with explicit parameters to avoid Query object issues
-        benford_data = analysis_benford(column="Amount")
-        anomaly_data = analysis_anomalies(contamination=0.05)
-        fuzzy_data = analysis_fuzzy(threshold=0.7, max_vendors=60)
-        recon_data = analysis_reconciliation(date_window=3, similarity_threshold=0.6)
-        monte_carlo_data = analysis_monte_carlo(iterations=1000, months=12)
-        
-        # Generate memo using LLM
-        memo_text = generate_audit_memo(
-            benford_data=benford_data,
-            anomaly_data=anomaly_data,
-            fuzzy_data=fuzzy_data,
-            reconciliation_data=recon_data,
-            monte_carlo_data=monte_carlo_data,
-        )
-        
-        return {
-            "status": "success",
-            "memo": memo_text,
-        }
+        mc_d = analysis_monte_carlo()
     except HTTPException:
-        # Re-raise HTTP exceptions as-is
-        raise
-    except Exception as e:
-        error_msg = str(e)
-        
-        # Check for Ollama connection errors
-        if "Connection refused" in error_msg or "Failed to reach" in error_msg or "refused" in error_msg.lower():
-            raise HTTPException(
-                status_code=503,
-                detail="Cannot connect to Ollama. Please ensure Ollama is running on localhost:11434 with qwen2.5:3b model loaded."
+        pass
+    except Exception:
+        pass
+
+    try:
+        memo_text = generate_audit_memo(benford_d, anomaly_d, fuzzy_d, recon_d, mc_d)
+    except Exception:
+        memo_text = _generate_fallback_memo(
+            benford_d, anomaly_d, fuzzy_d, recon_d, mc_d if isinstance(mc_d, dict) else {}
+        )
+
+    return {"status": "success", "memo": memo_text}
+
+
+@app.get("/analysis/generate-memo/stream")
+def analysis_generate_memo_stream():
+    """
+    Same data pipeline as /analysis/generate-memo, but streams the memo from Ollama
+    token-by-token as text/plain (UTF-8). On LLM failure, streams the fallback memo in one chunk.
+    """
+    require_ledger()
+    require_bank()
+
+    benford_d = analysis_benford()
+    anomaly_d = analysis_anomalies()
+    fuzzy_d = analysis_fuzzy()
+    recon_d = analysis_reconciliation()
+
+    mc_d = None
+    try:
+        mc_d = analysis_monte_carlo()
+    except HTTPException:
+        pass
+    except Exception:
+        pass
+
+    def gen():
+        try:
+            for piece in iter_audit_memo_stream(benford_d, anomaly_d, fuzzy_d, recon_d, mc_d):
+                yield piece
+        except Exception:
+            memo_text = _generate_fallback_memo(
+                benford_d, anomaly_d, fuzzy_d, recon_d, mc_d if isinstance(mc_d, dict) else {}
             )
-        elif "qwen2.5:3b" in error_msg.lower():
-            raise HTTPException(
-                status_code=503,
-                detail="Ollama model 'qwen2.5:3b' not found. Please run 'ollama pull qwen2.5:3b' first."
-            )
-        else:
-            raise HTTPException(status_code=500, detail=f"Memo generation failed: {error_msg}")
+            yield memo_text
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+
+def _generate_fallback_memo(benford_data, anomaly_data, fuzzy_data, recon_data, mc_data):
+    """Generate a professional memo using template when LLM is unavailable."""
+    benford_score = benford_data.get('benford_score', 0)
+    anomaly_count = anomaly_data.get('total_flagged', 0)
+    fuzzy_pairs = fuzzy_data.get('flagged_pairs', 0)
+    recon_match = recon_data.get('matched', 0)
+    recon_total = recon_data.get('total', 0)
+    match_pct = (recon_match / recon_total * 100) if recon_total > 0 else 0
+    
+    memo = f"""PROFESSIONAL AUDIT MEMO
+
+SUMMARY OF PROCEDURES
+The organization's financial transactions were analyzed using advanced digital audit analytics tools. 
+Procedures included Benford's Law conformity testing, isolation forest anomaly detection, fuzzy vendor 
+name matching, bank reconciliation analysis, and cash flow stress testing.
+
+KEY FINDINGS
+- Benford's Law Analysis: Score {benford_score}/100, indicating a {benford_data.get('band', 'Unknown')} risk band
+- Anomaly Detection: {anomaly_count} transactions flagged as statistical outliers from {anomaly_data.get('total_records', 0)} total records
+- Vendor Matching: {fuzzy_pairs} vendor name pairs identified with similarity scores above 0.70
+- Bank Reconciliation: {recon_match} of {recon_total:,} ledger entries matched ({match_pct:.1f}% match rate)
+
+RISK HIGHLIGHTS
+The analysis identified several material observations requiring management attention:
+1. Digital anomaly detection flagged {anomaly_count} transactions exceeding statistical norms
+2. Vendor master contained {fuzzy_pairs} pairs with >70% name similarity, indicating possible duplicate records
+3. Bank reconciliation error score: {recon_data.get('error_score', 0):.1f}%
+
+OBSERVATIONS
+- Transactional data exhibits {'acceptable' if benford_score < 60 else 'elevated'} conformity with Benford's Law
+- {'Multiple' if anomaly_count > 5 else 'Limited'} high-risk transactions require detailed investigation
+- Vendor master data quality shows {'significant' if fuzzy_pairs > 5 else 'minor'} duplication patterns
+
+RECOMMENDATIONS
+1. Investigate flagged high-risk transactions for supporting documentation and business justification
+2. Consolidate identified duplicate vendor records and implement master data governance
+3. Review reconciliation exceptions and investigate unmatched items
+4. Strengthen internal controls over vendor creation and payment approval thresholds
+
+CONCLUSION
+Based on the comprehensive analysis performed, the organization's transaction processing and vendor 
+management demonstrate {['HIGH', 'MODERATE', 'LOW'][min(2, max(0, int(benford_score/30)))]} risk exposure. 
+Immediate attention is recommended for the flagged transactions and control gaps identified above.
+
+Prepared using LedgerSpy Digital Audit Analytics Platform
+"""
+    return memo
 
 
 @app.get("/health")
 def health():
     return {"status": "ok", "ledger_loaded": session["ledger_df"] is not None, "bank_loaded": session["bank_df"] is not None}
+
+
+# ─── Streaming helper ─────────────────────────────────────────────────────────
+
+def _word_stream(text: str):
+    """Yield words one by one for smooth frontend streaming."""
+    words = text.split()
+    for i, w in enumerate(words):
+        yield w + (" " if i < len(words) - 1 else "")
+
+
+def _streaming_response(text_fn) -> StreamingResponse:
+    """Run text_fn() then stream result word-by-word."""
+    def generator():
+        try:
+            text = text_fn()
+            yield from _word_stream(text)
+        except Exception as e:
+            yield f"[Error: {e}]"
+    return StreamingResponse(generator(), media_type="text/event-stream",
+                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+# ─── Per-module AI insight endpoints ─────────────────────────────────────────
+
+@app.get("/insights/benford")
+def insight_benford():
+    """Stream AI-generated Benford's Law insight."""
+    df = require_ledger()
+    try:
+        _, expected, actual = get_benford_analysis(df, "Amount")
+        actual_arr = np.array(actual); expected_arr = np.array(expected)
+        mad   = float(np.mean(np.abs(actual_arr - expected_arr)))
+        score = min(100, round((mad / 0.015) * 100))
+        n     = len(df["Amount"].dropna())
+        chi   = float(np.sum((actual_arr * n - expected_arr * n) ** 2 / np.where(expected_arr * n > 0, expected_arr * n, 1)))
+        sigs  = []
+        for i, (a, e) in enumerate(zip(actual, expected), 1):
+            dev = round((a - e) * 100, 2)
+            if abs(dev) > 1.5:
+                sigs.append({"digit": str(i), "actual": round(a * 100, 2), "expected": round(e * 100, 2), "deviation": dev})
+        data = {"benford_score": score, "band": "High" if score >= 60 else "Moderate" if score >= 30 else "Low",
+                "chi_square": round(chi, 2), "records_analyzed": n, "significant_digits": sigs}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return _streaming_response(lambda: generate_benford_insight(data))
+
+
+@app.get("/insights/anomalies")
+def insight_anomalies():
+    """Stream AI-generated anomaly detection insight."""
+    df = require_ledger()
+    try:
+        df_w = df.copy(); df_w["Hour"] = 12
+        if "Time" in df_w.columns:
+            df_w["Hour"] = pd.to_datetime(df_w["Time"], format="%H:%M", errors="coerce").dt.hour.fillna(12).astype(int)
+        det = detect_outliers(df_w, contamination=0.05)
+        out = det[det["Is_Outlier"] == -1]
+        mean_a = det["Amount"].mean(); std_a = det["Amount"].std() or 1
+        anomalies = []
+        for i, (_, row) in enumerate(out.iterrows(), 1):
+            z  = abs((row["Amount"] - mean_a) / std_a)
+            hr = int(row.get("Hour", 12))
+            anomalies.append({"id": i, "date": str(row.get("Date", ""))[:10],
+                               "vendor": str(row.get("VendorName", "Unknown")),
+                               "amount": float(row["Amount"]), "hour": hr,
+                               "risk": round(min(1.0, z / 6 + (0.15 if hr < 6 or hr > 22 else 0)), 3)})
+        data = {"total_flagged": len(out), "total_records": len(det), "anomalies": anomalies}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return _streaming_response(lambda: generate_anomaly_insight(data))
+
+
+@app.get("/insights/fuzzy")
+def insight_fuzzy_endpoint():
+    """Stream AI-generated fuzzy vendor matching insight."""
+    df = require_ledger()
+    try:
+        vendors = df["VendorName"].dropna().astype(str).unique().tolist()[:60]
+        pairs = []
+        for i in range(len(vendors)):
+            for j in range(i + 1, len(vendors)):
+                v1, v2 = vendors[i], vendors[j]
+                ml = max(len(v1), len(v2))
+                sc = round(1 - calculate_levenshtein(v1, v2) / ml, 3) if ml > 0 else 1.0
+                if sc >= 0.70:
+                    pairs.append({"vendorA": v1, "vendorB": v2, "score": sc})
+        pairs.sort(key=lambda x: -x["score"])
+        data = {"total_vendors": len(vendors), "flagged_pairs": len(pairs),
+                "matches": pairs, "vendor_clusters": []}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return _streaming_response(lambda: generate_fuzzy_insight(data))
+
+
+@app.get("/insights/reconciliation")
+def insight_reconciliation():
+    """Stream AI-generated bank reconciliation insight."""
+    ledger_df = require_ledger(); bank_df = require_bank()
+    try:
+        ml, _, err = run_reconciliation(ledger_df, bank_df)
+        matched   = int((ml["MatchStatus"] == "Full Match").sum())
+        partial   = int((ml["MatchStatus"] == "Partial Match").sum())
+        unmatched = int((ml["MatchStatus"] == "No Match").sum())
+        data = {"total": len(ml), "matched": matched, "partial": partial,
+                "unmatched": unmatched, "error_score": round(float(err), 2)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return _streaming_response(lambda: generate_reconciliation_insight(data))
+
+
+@app.get("/insights/summary")
+def insight_summary():
+    """Stream a full AI audit conclusion across all modules."""
+    df = require_ledger()
+    # Silently run all analyses
+    benford_d, anomaly_d, fuzzy_d, recon_d, mc_d = {}, {}, {}, {}, None
+    try:
+        _, expected, actual = get_benford_analysis(df, "Amount")
+        actual_arr = np.array(actual); expected_arr = np.array(expected)
+        mad   = float(np.mean(np.abs(actual_arr - expected_arr)))
+        score = min(100, round((mad / 0.015) * 100))
+        n     = len(df["Amount"].dropna())
+        chi   = float(np.sum((actual_arr * n - expected_arr * n) ** 2 / np.where(expected_arr * n > 0, expected_arr * n, 1)))
+        sigs  = []
+        for i, (a, e) in enumerate(zip(actual, expected), 1):
+            dev = round((a - e) * 100, 2)
+            if abs(dev) > 1.5:
+                sigs.append({"digit": str(i), "actual": round(a * 100, 2), "expected": round(e * 100, 2), "deviation": dev})
+        benford_d = {"benford_score": score, "band": "High" if score >= 60 else "Moderate" if score >= 30 else "Low",
+                     "chi_square": round(chi, 2), "records_analyzed": n, "significant_digits": sigs}
+    except Exception: pass
+    try:
+        df_w = df.copy(); df_w["Hour"] = 12
+        det = detect_outliers(df_w, contamination=0.05)
+        out = det[det["Is_Outlier"] == -1]
+        mean_a = det["Amount"].mean(); std_a = det["Amount"].std() or 1
+        anomalies = []
+        for i, (_, row) in enumerate(out.iterrows(), 1):
+            z = abs((row["Amount"] - mean_a) / std_a)
+            anomalies.append({"date": str(row.get("Date", ""))[:10],
+                               "vendor": str(row.get("VendorName", "Unknown")),
+                               "amount": float(row["Amount"]),
+                               "risk": round(min(1.0, z / 6), 3)})
+        anomaly_d = {"total_flagged": len(out), "total_records": len(det), "anomalies": anomalies}
+    except Exception: pass
+    try:
+        vendors = df["VendorName"].dropna().astype(str).unique().tolist()[:50]
+        pairs = []
+        for i in range(len(vendors)):
+            for j in range(i + 1, len(vendors)):
+                v1, v2 = vendors[i], vendors[j]
+                ml2 = max(len(v1), len(v2))
+                sc  = round(1 - calculate_levenshtein(v1, v2) / ml2, 3) if ml2 > 0 else 1.0
+                if sc >= 0.70: pairs.append({"vendorA": v1, "vendorB": v2, "score": sc})
+        fuzzy_d = {"total_vendors": len(vendors), "flagged_pairs": len(pairs), "matches": pairs, "vendor_clusters": []}
+    except Exception: pass
+    if session["bank_df"] is not None:
+        try:
+            ml2, _, err = run_reconciliation(df, session["bank_df"])
+            recon_d = {"total": len(ml2),
+                       "matched":   int((ml2["MatchStatus"] == "Full Match").sum()),
+                       "partial":   int((ml2["MatchStatus"] == "Partial Match").sum()),
+                       "unmatched": int((ml2["MatchStatus"] == "No Match").sum()),
+                       "error_score": round(float(err), 2)}
+        except Exception: pass
+    return _streaming_response(
+        lambda: generate_section("conclusion", benford_d, anomaly_d, fuzzy_d, recon_d, mc_d)
+    )
+
+
+# ─── Structured section endpoint (JSON, for Summary page panels) ──────────────
+
+@app.post("/analysis/section")
+def analysis_section(body: dict = Body(...)):
+    """
+    Generate AI text for a specific Summary page section.
+    Body: { "section": "findings"|"risks"|"observations"|"conclusion",
+            "benford": {...}, "anomalies": {...}, "fuzzy": {...},
+            "reconciliation": {...}, "monte_carlo": {...} }
+    Returns: { "text": "...", "bullets": ["...", "..."] }
+    """
+    section = body.get("section", "findings")
+    benford_d = body.get("benford", {}) or {}
+    anomaly_d = body.get("anomalies", {}) or {}
+    fuzzy_d   = body.get("fuzzy", {}) or {}
+    recon_d   = body.get("reconciliation", {}) or {}
+    mc_d      = body.get("monte_carlo", None)
+    try:
+        text = generate_section(section, benford_d, anomaly_d, fuzzy_d, recon_d, mc_d)
+        # Parse bullet lines
+        bullets = [
+            line.lstrip("-• ").strip()
+            for line in text.split("\n")
+            if line.strip().startswith(("-", "•", "*"))
+        ]
+        if not bullets:
+            # Treat as paragraph — split by sentence
+            bullets = [s.strip() for s in text.split(".") if len(s.strip()) > 20][:5]
+        return {"text": text, "bullets": bullets}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/analysis/section/stream")
+def analysis_section_stream(body: dict = Body(...)):
+    """
+    Same body as POST /analysis/section; streams the model output as raw UTF-8 text chunks
+    (token streaming from Ollama via LangChain). Client accumulates bytes into the final section.
+    """
+    section = body.get("section", "findings")
+    benford_d = body.get("benford", {}) or {}
+    anomaly_d = body.get("anomalies", {}) or {}
+    fuzzy_d = body.get("fuzzy", {}) or {}
+    recon_d = body.get("reconciliation", {}) or {}
+    mc_d = body.get("monte_carlo", None)
+
+    def gen():
+        try:
+            for piece in iter_section_stream(section, benford_d, anomaly_d, fuzzy_d, recon_d, mc_d):
+                yield piece
+        except Exception as e:
+            yield f"\n[Error: {e}]\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+# ─── RAG Chatbot endpoint ─────────────────────────────────────────────────────
+
+@app.post("/chat")
+def chat_endpoint(body: dict = Body(...)):
+    """
+    Context-aware chatbot.
+    Body: { "message": "...", "history": [{"role":"user"|"assistant","content":"..."}] }
+    Streams plain-text word-by-word.
+    """
+    message = (body.get("message") or "").strip()
+    history = body.get("history", []) or []
+    if not message:
+        raise HTTPException(status_code=400, detail="message is required")
+
+    df = session.get("ledger_df")
+
+    # Build data context
+    data_ctx = ""
+    if df is not None:
+        total = len(df)
+        total_amt = df["Amount"].sum() if "Amount" in df.columns else 0
+        vendors = df["VendorName"].nunique() if "VendorName" in df.columns else "N/A"
+        data_ctx = (
+            f"\nThe user has uploaded a ledger with {total} transactions "
+            f"({vendors} unique vendors, ₹{total_amt:,.2f} net).\n"
+        )
+
+    # Build conversation history
+    history_txt = ""
+    for turn in history[-8:]:
+        role = "User" if turn.get("role") == "user" else "Assistant"
+        history_txt += f"{role}: {turn.get('content','')}\n"
+
+    prompt = (
+        "You are a helpful AI audit assistant for the LedgerSpy platform. "
+        "Answer questions about audit findings, fraud risks, and uploaded financial data. "
+        "Use ₹ for currency. Be precise, professional, and concise.\n"
+        f"{data_ctx}\n"
+        f"Conversation so far:\n{history_txt}\n"
+        f"User: {message}\n\nAssistant:"
+    )
+
+    return _streaming_response(lambda: llm.invoke([HumanMessage(content=prompt)]).content.strip())
+
+
+# ─── Server startup ────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=False,  # Disabled to prevent session loss
+        log_level="info",
+    )

@@ -5,6 +5,7 @@ import {
 } from "recharts";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { InsightCard } from "@/components/InsightCard";
+import { AiInsightBlock } from "@/components/AiInsightBlock";
 import { cn } from "@/lib/utils";
 import { Loader2, AlertCircle } from "lucide-react";
 import { fetchAnomalies, type AnomalyRecord, type AnomalyResult } from "@/lib/api";
@@ -126,6 +127,13 @@ export default function Anomalies() {
             : "No high-risk outliers detected.",
           "Transactions with odd-hour timestamps accumulate an additional risk penalty.",
         ]}
+      />
+
+      {/* AI-generated forensic insight */}
+      <AiInsightBlock
+        endpoint="/insights/anomalies"
+        label="Generate AI Risk Analysis"
+        className="mb-6"
       />
 
       {/* Outlier detection table */}

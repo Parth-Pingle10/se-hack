@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { StatCard } from "@/components/StatCard";
 import { InsightCard } from "@/components/InsightCard";
+import { AiInsightBlock } from "@/components/AiInsightBlock";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import {
@@ -169,6 +170,13 @@ export default function Reconciliation() {
             : "No partial matches — all amounts align perfectly.",
           `Overall error score: ${data.error_score}% of total transaction volume is unreconciled.`,
         ]}
+      />
+
+      {/* AI-generated forensic insight */}
+      <AiInsightBlock
+        endpoint="/insights/reconciliation"
+        label="Generate AI Reconciliation Insight"
+        className="mb-6"
       />
 
       {/* Controls + Table */}

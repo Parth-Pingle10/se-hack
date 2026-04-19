@@ -236,6 +236,170 @@ export async function generateAuditMemo(): Promise<GenerateMemoResult> {
   return request<GenerateMemoResult>("/analysis/generate-memo");
 }
 
+// ─── AI Section Generator (for Summary page panels) ──────────────────────────
+
+export interface SectionResult {
+  text: string;
+  bullets: string[];
+}
+
+export async function fetchSection(
+  section: "findings" | "risks" | "observations" | "conclusion",
+  benford: object | null,
+  anomalies: object | null,
+  fuzzy: object | null,
+  reconciliation: object | null,
+  monte_carlo?: object | null
+): Promise<SectionResult> {
+  return request<SectionResult>("/analysis/section", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ section, benford, anomalies, fuzzy, reconciliation, monte_carlo }),
+  });
+}
+
+/** Raw UTF-8 stream (no word-splitting) — use for Ollama token streams. */
+async function readRawUtf8Stream(
+  res: Response,
+  onChunk: (chunk: string) => void,
+  onDone: () => void
+): Promise<boolean> {
+  const reader = res.body?.getReader();
+  if (!reader) {
+    return false;
+  }
+  const dec = new TextDecoder();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const s = dec.decode(value, { stream: true });
+      if (s) onChunk(s);
+    }
+    onDone();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export type SummarySectionKind = "findings" | "risks" | "observations" | "conclusion";
+
+/** Token-stream one Summary section from POST /analysis/section/stream. Returns false on HTTP/body failure (onDone not called). */
+export async function streamSectionAnalysis(
+  section: SummarySectionKind,
+  benford: object | null,
+  anomalies: object | null,
+  fuzzy: object | null,
+  reconciliation: object | null,
+  monte_carlo: object | null | undefined,
+  onChunk: (chunk: string) => void,
+  onDone: () => void
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/analysis/section/stream`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ section, benford, anomalies, fuzzy, reconciliation, monte_carlo }),
+    });
+    if (!res.ok) {
+      return false;
+    }
+    return await readRawUtf8Stream(res, onChunk, onDone);
+  } catch {
+    return false;
+  }
+}
+
+/** Token-stream full audit memo from GET /analysis/generate-memo/stream */
+export async function streamGenerateAuditMemo(
+  onChunk: (chunk: string) => void,
+  onDone: () => void
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${BASE}/analysis/generate-memo/stream`, { method: "GET" });
+    if (!res.ok) {
+      return false;
+    }
+    return await readRawUtf8Stream(res, onChunk, onDone);
+  } catch {
+    return false;
+  }
+}
+
+// ─── Shared plain-text stream reader ─────────────────────────────────────────
+
+async function readPlainStream(
+  res: Response,
+  onToken: (t: string) => void,
+  onDone: () => void,
+  onError: (e: string) => void
+): Promise<void> {
+  const reader = res.body?.getReader();
+  if (!reader) { onError("No response body"); return; }
+  const dec = new TextDecoder();
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    const parts = buf.split(/(\s+)/);
+    buf = parts.pop() ?? "";
+    for (const p of parts) { if (p.trim()) onToken(p + " "); }
+  }
+  if (buf.trim()) onToken(buf + " ");
+  onDone();
+}
+
+// ─── Per-module AI Insight Stream ────────────────────────────────────────────
+
+export async function streamInsight(
+  endpoint: string,
+  onToken: (token: string) => void,
+  onDone: () => void,
+  onError: (err: string) => void
+): Promise<void> {
+  try {
+    const res = await fetch(`${BASE}${endpoint}`, { method: "GET" });
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({ detail: res.statusText }));
+      onError(b.detail ?? `HTTP ${res.status}`);
+      return;
+    }
+    await readPlainStream(res, onToken, onDone, onError);
+  } catch (e) { onError(e instanceof Error ? e.message : "Unknown error"); }
+}
+
+// ─── Chat (RAG-based, persistent history) ────────────────────────────────────
+
+export interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: number;
+}
+
+export async function chatWithAI(
+  message: string,
+  history: ChatMessage[],
+  onToken: (token: string) => void,
+  onDone: () => void,
+  onError: (err: string) => void
+): Promise<void> {
+  try {
+    const res = await fetch(`${BASE}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, history }),
+    });
+    if (!res.ok) {
+      const b = await res.json().catch(() => ({ detail: res.statusText }));
+      onError(b.detail ?? `HTTP ${res.status}`);
+      return;
+    }
+    await readPlainStream(res, onToken, onDone, onError);
+  } catch (e) { onError(e instanceof Error ? e.message : "Unknown error"); }
+}
+
 // ─── Health ──────────────────────────────────────────────────────────────────
 
 export async function fetchHealth(): Promise<{

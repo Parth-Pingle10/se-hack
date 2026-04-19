@@ -3,6 +3,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import { Input } from "@/components/ui/input";
 import { Search, Users, Loader2, AlertCircle } from "lucide-react";
 import { InsightCard } from "@/components/InsightCard";
+import { AiInsightBlock } from "@/components/AiInsightBlock";
 import { cn } from "@/lib/utils";
 import { fetchFuzzy, type FuzzyResult } from "@/lib/api";
 import { useSettings } from "@/lib/settings";
@@ -124,6 +125,12 @@ export default function Fuzzy() {
           `${data.flagged_pairs} vendor pair(s) share similarity ≥ 0.70 out of ${data.total_vendors} vendors checked.`,
           "Pairs above 0.85 should be reviewed for consolidation before payment runs.",
         ]}
+      />
+
+      {/* AI-generated forensic insight */}
+      <AiInsightBlock
+        endpoint="/insights/fuzzy"
+        label="Generate AI Vendor Risk Analysis"
       />
 
       {/* Similarity table */}

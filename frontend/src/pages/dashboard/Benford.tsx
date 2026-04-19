@@ -5,6 +5,7 @@ import {
 } from "recharts";
 import { StatCard } from "@/components/StatCard";
 import { InsightCard } from "@/components/InsightCard";
+import { AiInsightBlock } from "@/components/AiInsightBlock";
 import { RiskBadge } from "@/components/RiskBadge";
 import type { RiskBand } from "@/lib/risk";
 import { TrendingUp, AlertTriangle, Activity, ShieldAlert, Loader2, AlertCircle } from "lucide-react";
@@ -193,9 +194,16 @@ export default function Benford() {
           "Segment by vendor or category for a finer-grained Benford analysis.",
         ]}
       />
+
+      {/* AI-generated forensic insight */}
+      <AiInsightBlock
+        endpoint="/insights/benford"
+        label="Generate AI Forensic Analysis"
+      />
     </div>
   );
 }
+
 
 function LoadingState() {
   return (
