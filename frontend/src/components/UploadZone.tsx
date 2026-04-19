@@ -39,7 +39,7 @@ export function UploadZone({ label, description, onFile }: UploadZoneProps) {
         ref={inputRef}
         type="file"
         className="hidden"
-        accept=".csv,.xls,.xlsx,.pdf,.txt"
+        accept=".csv,.xls,.xlsx,.pdf,.docx"
         onChange={(e) => handle(e.target.files?.[0])}
       />
 
@@ -58,7 +58,7 @@ export function UploadZone({ label, description, onFile }: UploadZoneProps) {
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-bold text-foreground">{label}</h3>
           <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
-            {description ?? "Drag and drop, or click to browse. CSV, XLSX, PDF."}
+            {description ?? "Drag and drop, or click to browse. CSV, XLSX, PDF, DOCX."}
           </p>
 
           {file && (

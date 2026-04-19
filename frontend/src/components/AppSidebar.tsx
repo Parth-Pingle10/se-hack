@@ -1,4 +1,4 @@
-import { BarChart3, GitCompare, AlertTriangle, FileCheck2, Scale, Share2, TrendingUp, Settings as SettingsIcon, type LucideIcon } from "lucide-react";
+import { BarChart3, GitCompare, AlertTriangle, FileCheck2, Scale, Share2, TrendingUp, Settings as SettingsIcon, PieChart, type LucideIcon } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Logo } from "@/components/Logo";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,7 @@ const itemsConfig = [
   { title: "Bank Reconciliation", url: "/dashboard/reconciliation", icon: Scale, module: "reconciliation" },
   { title: "Risk Network",        url: "/dashboard/network",        icon: Share2, module: "riskNetwork" },
   { title: "Monte Carlo",         url: "/dashboard/monte-carlo",    icon: TrendingUp, module: "monteCarlo" },
+  { title: "Industry Benchmarking", url: "/dashboard/benchmark",    icon: PieChart, module: undefined },
   { title: "Final Conclusion",    url: "/dashboard/summary",        icon: FileCheck2, module: undefined },
 ];
 

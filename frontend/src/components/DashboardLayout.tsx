@@ -16,6 +16,7 @@ const titles: Record<string, { title: string; subtitle: string }> = {
   "/dashboard/anomalies":      { title: "Anomaly Detection",      subtitle: "Transactions flagged by the outlier model" },
   "/dashboard/reconciliation": { title: "Bank Reconciliation",    subtitle: "Compare ledger entries to bank statement records" },
   "/dashboard/network":        { title: "Risk Network",           subtitle: "Relational map of vendors, employees and accounts" },
+  "/dashboard/benchmark":      { title: "Industry Benchmarking",  subtitle: "Compare anomaly and error rates against industry peer distributions" },
   "/dashboard/summary":        { title: "Final Conclusion",       subtitle: "Consolidated audit findings and memo" },
   "/dashboard/settings":       { title: "Settings",               subtitle: "Thresholds, risk sensitivity, and module toggles" },
 };

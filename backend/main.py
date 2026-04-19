@@ -6,6 +6,8 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, Query, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from typing import Optional
+import tempfile
+import os
 
 from llm import llm
 from langchain_core.messages import HumanMessage
@@ -26,6 +28,8 @@ from memo_generator import (
     _fmt_benford, _fmt_anomaly, _fmt_fuzzy, _fmt_recon,
 )
 from map import preprocess_data, compute_benford_scores, compute_anomaly_scores, fuzzy_matching, compute_risk_scores, generate_graph
+from converter import process_file
+from benchmark_engiene import BenchmarkEngine
 
 app = FastAPI(title="LedgerSpy API", version="1.0.0")
 
@@ -48,6 +52,44 @@ session: dict = {
 def read_uploaded_csv(file_bytes: bytes) -> pd.DataFrame:
     return pd.read_csv(io.BytesIO(file_bytes))
 
+async def process_uploaded_file(file: UploadFile) -> pd.DataFrame:
+    """Process uploaded file of various formats and return DataFrame."""
+    # Create temporary file
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as temp_file:
+        temp_file.write(await file.read())
+        temp_file_path = temp_file.name
+    
+    # Output CSV path
+    output_csv = temp_file_path.replace(os.path.splitext(temp_file_path)[1], '.csv')
+    
+    try:
+        # Process the file
+        process_file(temp_file_path, output_csv)
+        
+        # Read the processed CSV
+        df = pd.read_csv(output_csv)
+        
+        # Clean up temp files
+        os.unlink(temp_file_path)
+        if os.path.exists(output_csv):
+            os.unlink(output_csv)
+        pdf_file = output_csv.replace('.csv', '.pdf')
+        if os.path.exists(pdf_file):
+            os.unlink(pdf_file)
+        
+        return df
+    
+    except Exception as e:
+        # Clean up on error
+        if os.path.exists(temp_file_path):
+            os.unlink(temp_file_path)
+        if os.path.exists(output_csv):
+            os.unlink(output_csv)
+        pdf_file = output_csv.replace('.csv', '.pdf')
+        if os.path.exists(pdf_file):
+            os.unlink(pdf_file)
+        raise e
+
 
 def require_ledger():
     if session["ledger_df"] is None:
@@ -65,24 +107,27 @@ def require_bank():
 
 @app.post("/upload/ledger")
 async def upload_ledger(file: UploadFile = File(...)):
-    """Upload the financial ledger CSV."""
-    raw = await file.read()
+    """Upload the financial ledger file (CSV, Excel, PDF, DOCX)."""
     try:
-        df = read_uploaded_csv(raw)
+        df = await process_uploaded_file(file)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse ledger file: {e}")
 
     # Normalise column names
     df.columns = [c.strip() for c in df.columns]
     
-    # Check for new schema first (IncomingAmount/OutgoingAmount), then old schema (Amount)
-    has_incoming_outgoing = "IncomingAmount" in df.columns and "OutgoingAmount" in df.columns
-    has_amount = "Amount" in df.columns
+    # Check for amount columns (flexible - accepts common variations)
+    incoming_variations = ["IncomingAmount", "Incoming", "In", "Debit", "Dr", "Deposit"]
+    outgoing_variations = ["OutgoingAmount", "Outgoing", "Out", "Credit", "Cr", "Withdrawal"]
+    amount_variations = ["Amount", "Value", "Total", "Sum", "Balance"]
+    
+    has_incoming_outgoing = any(col in df.columns for col in incoming_variations) and any(col in df.columns for col in outgoing_variations)
+    has_amount = any(col in df.columns for col in amount_variations)
     
     if not (has_incoming_outgoing or has_amount):
         raise HTTPException(
             status_code=422,
-            detail="Ledger must have either 'Amount' column or both 'IncomingAmount' and 'OutgoingAmount' columns"
+            detail="Ledger must have either an amount column (Amount, Value, Total, Sum, Balance) or both transaction columns (Incoming/Outgoing, Debit/Credit variations)"
         )
     
     # Check for vendor/counterparty column
@@ -110,13 +155,21 @@ async def upload_ledger(file: UploadFile = File(...)):
     vendor_col = "CounterpartyName" if has_counterparty else "VendorName"
     df = df.rename(columns={vendor_col: "VendorName"})
     
-    # Create unified Amount column if using new schema
+    # Create unified Amount column
     if has_incoming_outgoing:
-        df["IncomingAmount"] = pd.to_numeric(df["IncomingAmount"], errors="coerce").fillna(0)
-        df["OutgoingAmount"] = pd.to_numeric(df["OutgoingAmount"], errors="coerce").fillna(0)
-        df["Amount"] = df["IncomingAmount"] - df["OutgoingAmount"]
+        # Find the actual incoming and outgoing column names
+        incoming_col = next((col for col in incoming_variations if col in df.columns), None)
+        outgoing_col = next((col for col in outgoing_variations if col in df.columns), None)
+        
+        if incoming_col and outgoing_col:
+            df["IncomingAmount"] = pd.to_numeric(df[incoming_col], errors="coerce").fillna(0)
+            df["OutgoingAmount"] = pd.to_numeric(df[outgoing_col], errors="coerce").fillna(0)
+            df["Amount"] = df["IncomingAmount"] - df["OutgoingAmount"]
     else:
-        df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")
+        # Find the actual amount column name
+        amount_col = next((col for col in amount_variations if col in df.columns), None)
+        if amount_col:
+            df["Amount"] = pd.to_numeric(df[amount_col], errors="coerce")
     
     df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     df = df.dropna(subset=["Amount", "VendorName"])
@@ -141,10 +194,9 @@ async def upload_ledger(file: UploadFile = File(...)):
 
 @app.post("/upload/bank")
 async def upload_bank(file: UploadFile = File(...)):
-    """Upload the bank statement CSV."""
-    raw = await file.read()
+    """Upload the bank statement file (CSV, Excel, PDF, DOCX)."""
     try:
-        df = read_uploaded_csv(raw)
+        df = await process_uploaded_file(file)
     except Exception as e:
         raise HTTPException(status_code=422, detail=f"Could not parse bank file: {e}")
 
@@ -290,6 +342,10 @@ def analysis_anomalies(contamination: float = Query(0.05, ge=0.01, le=0.5)):
     Isolation Forest anomaly detection.
     Returns flagged transactions with risk scores.
     """
+    return _analysis_anomalies_impl(contamination)
+
+
+def _analysis_anomalies_impl(contamination: float):
     df = require_ledger()
 
     df_work = df.copy()
@@ -390,6 +446,10 @@ def analysis_fuzzy(
     Fuzzy vendor name matching using Levenshtein similarity.
     Returns vendor pairs ranked by string similarity.
     """
+    return _analysis_fuzzy_impl(threshold, max_vendors)
+
+
+def _analysis_fuzzy_impl(threshold: float, max_vendors: int):
     df = require_ledger()
 
     vendor_col = "VendorName" if "VendorName" in df.columns else "vendor"
@@ -485,6 +545,10 @@ def analysis_reconciliation(
     Bank statement reconciliation against ledger entries.
     Returns match status for each ledger row and unmatched bank entries.
     """
+    return _analysis_reconciliation_impl(date_window, similarity_threshold)
+
+
+def _analysis_reconciliation_impl(date_window: int, similarity_threshold: float):
     ledger_df = require_ledger()
     bank_df = require_bank()
 
@@ -708,6 +772,30 @@ def analysis_network():
         raise HTTPException(status_code=500, detail=f"Network analysis failed: {str(e)}")
 
 
+@app.get("/analysis/benchmark")
+def analysis_benchmark(client_value: float = Query(..., description="The client's metric to benchmark"), sector: str = Query("Technology", description="Industry sector")):
+    """
+    Industry Benchmarking against peer values.
+    Returns statistical quartiles and classification.
+    """
+    # Mock data representing anomaly or error rates across industry peers
+    mock_data = {
+        "Technology": [1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 5.0, 6.0, 8.0, 10.0],
+        "Retail": [2.0, 3.0, 4.0, 4.5, 5.0, 6.0, 7.0, 8.0, 10.0, 12.0, 15.0],
+        "Healthcare": [0.5, 0.8, 1.0, 1.2, 1.5, 1.8, 2.0, 2.5, 3.0, 4.0, 5.0],
+        "Financial Services": [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.2, 1.5, 2.0, 2.5, 3.0],
+        "Manufacturing": [1.5, 2.0, 3.0, 3.5, 4.0, 4.5, 5.0, 6.0, 8.0, 10.0, 12.0]
+    }
+    
+    peer_values = mock_data.get(sector, mock_data["Technology"])
+    
+    try:
+        engine = BenchmarkEngine(peer_values)
+        return engine.analyze(client_value)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Benchmarking analysis failed: {str(e)}")
+
+
 @app.get("/analysis/monte-carlo")
 def analysis_monte_carlo(iterations: int = Query(1000, ge=100, le=10000), months: int = Query(12, ge=1, le=36)):
     """
@@ -734,9 +822,9 @@ def analysis_generate_memo():
     require_bank()
 
     benford_d = analysis_benford()
-    anomaly_d = analysis_anomalies()
-    fuzzy_d = analysis_fuzzy()
-    recon_d = analysis_reconciliation()
+    anomaly_d = _analysis_anomalies_impl(0.05)
+    fuzzy_d = _analysis_fuzzy_impl(0.7, 60)
+    recon_d = _analysis_reconciliation_impl(3, 0.6)
 
     mc_d = None
     try:
@@ -766,9 +854,9 @@ def analysis_generate_memo_stream():
     require_bank()
 
     benford_d = analysis_benford()
-    anomaly_d = analysis_anomalies()
-    fuzzy_d = analysis_fuzzy()
-    recon_d = analysis_reconciliation()
+    anomaly_d = _analysis_anomalies_impl(0.05)
+    fuzzy_d = _analysis_fuzzy_impl(0.7, 60)
+    recon_d = _analysis_reconciliation_impl(3, 0.6)
 
     mc_d = None
     try:
@@ -1121,7 +1209,18 @@ def chat_endpoint(body: dict = Body(...)):
         f"User: {message}\n\nAssistant:"
     )
 
-    return _streaming_response(lambda: llm.invoke([HumanMessage(content=prompt)]).content.strip())
+    def stream_gen():
+        try:
+            for chunk in llm.stream([HumanMessage(content=prompt)]):
+                yield chunk.content
+        except Exception as e:
+            yield f"\n[Error: {e}]"
+
+    return StreamingResponse(
+        stream_gen(),
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+    )
 
 
 # ─── Server startup ────────────────────────────────────────────────────────────

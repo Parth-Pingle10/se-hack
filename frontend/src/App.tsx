@@ -14,6 +14,7 @@ import RiskNetwork from "./pages/dashboard/RiskNetwork.tsx";
 import MonteCarlo from "./pages/dashboard/MonteCarlo.tsx";
 import Summary from "./pages/dashboard/Summary.tsx";
 import Settings from "./pages/dashboard/Settings.tsx";
+import IndustryBenchmark from "./pages/dashboard/IndustryBenchmark.tsx";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
@@ -35,6 +36,7 @@ const App = () => (
             <Route path="reconciliation" element={<Reconciliation />} />
             <Route path="network"        element={<RiskNetwork />} />
             <Route path="monte-carlo"    element={<MonteCarlo />} />
+            <Route path="benchmark"      element={<IndustryBenchmark />} />
             <Route path="summary"        element={<Summary />} />
             <Route path="settings"       element={<Settings />} />
           </Route>

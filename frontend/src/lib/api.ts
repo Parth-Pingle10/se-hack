@@ -400,6 +400,20 @@ export async function chatWithAI(
   } catch (e) { onError(e instanceof Error ? e.message : "Unknown error"); }
 }
 
+// ─── Benchmarking ──────────────────────────────────────────────────────────────
+
+export interface BenchmarkResult {
+  client_value: number;
+  industry_median: number;
+  ideal_range: [number, number];
+  p90_threshold: number;
+  classification: string;
+}
+
+export async function fetchBenchmark(clientValue: number, sector: string = "Technology"): Promise<BenchmarkResult> {
+  return request<BenchmarkResult>(`/analysis/benchmark?client_value=${clientValue}&sector=${encodeURIComponent(sector)}`);
+}
+
 // ─── Health ──────────────────────────────────────────────────────────────────
 
 export async function fetchHealth(): Promise<{

@@ -3,25 +3,26 @@ import pandas as pd
 import pdfplumber
 from docx2pdf import convert
 
-def process_file(file_path):
+def process_file(file_path, output_path="data.csv"):
     filename, ext = os.path.splitext(file_path)
     ext = ext.lower()
 
     try:
-        # 1. CSV → rename to data.csv
+        # 1. CSV → rename to output_path
         if ext == ".csv":
-            if os.path.exists("data.csv"):
-                os.remove("data.csv")
-            os.rename(file_path, "data.csv")
-            print(f"{file_path} → data.csv")
+            if file_path != output_path:
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+                os.rename(file_path, output_path)
+            print(f"{file_path} → {output_path}")
 
-        # 2. Excel → data.csv
+        # 2. Excel → output_path
         elif ext in [".xls", ".xlsx"]:
             df = pd.read_excel(file_path)
-            df.to_csv("data.csv", index=False)
-            print(f"{file_path} → data.csv")
+            df.to_csv(output_path, index=False)
+            print(f"{file_path} → {output_path}")
 
-        # 3. PDF → extract tables → data.csv
+        # 3. PDF → extract tables → output_path
         elif ext == ".pdf":
             all_tables = []
 
@@ -34,30 +35,31 @@ def process_file(file_path):
 
             if all_tables:
                 combined_df = pd.concat(all_tables, ignore_index=True)
-                combined_df.to_csv("data.csv", index=False)
-                print(f"{file_path} → data.csv")
+                combined_df.to_csv(output_path, index=False)
+                print(f"{file_path} → {output_path}")
             else:
-                print(f"{file_path}: Tables not available")
+                raise ValueError(f"No tables found in PDF {file_path}")
 
-        # 4. DOC / DOCX → data.pdf → data.csv
+        # 4. DOC / DOCX → temp.pdf → output_path
         elif ext in [".doc", ".docx"]:
-            pdf_file = "data.pdf"
+            pdf_file = output_path.replace(".csv", ".pdf")
 
             # remove old pdf if exists
             if os.path.exists(pdf_file):
                 os.remove(pdf_file)
 
             convert(file_path, pdf_file)
-            print(f"{file_path} → data.pdf")
+            print(f"{file_path} → {pdf_file}")
 
             # now process the generated PDF
-            process_file(pdf_file)
+            process_file(pdf_file, output_path)
 
         else:
-            print(f"Unsupported file: {file_path}")
+            raise ValueError(f"Unsupported file type: {ext}")
 
     except Exception as e:
         print(f"Error processing {file_path}: {e}")
+        raise
 
 
 # 🔁 Run

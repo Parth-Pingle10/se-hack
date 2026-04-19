@@ -62,10 +62,14 @@ def run_reconciliation(ledger_df, bank_df, date_window=3, similarity_threshold=0
             b_df.at[best_idx, 'IsMatched'] = True
 
     # Calculation of Error Score (Percentage of volume unmatched)
-    unmatched_ledger = l_df[l_df['MatchStatus'] == 'No Match']['Amount'].sum()
-    unmatched_bank = b_df[~b_df['IsMatched']]['Amount'].sum()
-    total_vol = l_df['Amount'].sum() + b_df['Amount'].sum()
+    # Use absolute values to avoid sign cancellation with mixed incoming/outgoing amounts
+    unmatched_ledger_vol = l_df[l_df['MatchStatus'] == 'No Match']['Amount'].abs().sum()
+    unmatched_bank_vol = b_df[~b_df['IsMatched']]['Amount'].abs().sum()
+    total_ledger_vol = l_df['Amount'].abs().sum()
+    total_bank_vol = b_df['Amount'].abs().sum()
+    total_vol = total_ledger_vol + total_bank_vol
     
-    error_score = ((unmatched_ledger + unmatched_bank) / total_vol) * 100
+    # Avoid division by zero; error_score will be 0 if no transactions
+    error_score = ((unmatched_ledger_vol + unmatched_bank_vol) / total_vol * 100) if total_vol > 0 else 0.0
     
     return l_df, b_df[~b_df['IsMatched']], error_score
